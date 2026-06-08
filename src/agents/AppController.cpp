@@ -6,6 +6,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -97,6 +98,57 @@ AppController::AppController(AgentProtocol *protocol, QObject *parent)
         m_credsPath = expandTilde(envCreds);
         m_credsFromEnv = true;
     }
+
+    // Discover NATS CLI contexts and re-apply a previously chosen one (it sets the
+    // server URL + creds, taking precedence over the bare saved server).
+    scanContexts();
+    const QString savedContext = QSettings().value(QStringLiteral("context")).toString();
+    if (!savedContext.isEmpty() && m_natsContexts.contains(savedContext))
+        applyContext(savedContext, false);
+}
+
+void AppController::scanContexts()
+{
+    m_natsContexts.clear();
+    QDir d(QDir::homePath() + QStringLiteral("/.config/nats/context"));
+    if (d.exists()) {
+        const QStringList files = d.entryList({QStringLiteral("*.json")}, QDir::Files, QDir::Name);
+        for (const QString &fn : files)
+            m_natsContexts << QFileInfo(fn).completeBaseName();
+    }
+    emit natsContextsChanged();
+}
+
+bool AppController::applyContext(const QString &name, bool persist)
+{
+    QFile f(QDir::homePath() + QStringLiteral("/.config/nats/context/%1.json").arg(name));
+    if (!f.open(QIODevice::ReadOnly)) {
+        emit notice(QStringLiteral("context not found: %1").arg(name));
+        return false;
+    }
+    const QJsonObject o = QJsonDocument::fromJson(f.readAll()).object();
+    const QString url = o.value(QStringLiteral("url")).toString();
+    if (!url.isEmpty()) {
+        m_serverUrl = url;
+        m_serverUrlPersisted = true;
+        emit serverUrlChanged();
+    }
+    // A context's creds is a file path (may be empty for a plaintext context).
+    m_credsPath = expandTilde(o.value(QStringLiteral("creds")).toString());
+    m_credsFromEnv = false;
+    if (persist) {
+        QSettings s;
+        s.setValue(QStringLiteral("context"), name);
+        s.setValue(QStringLiteral("server"), m_serverUrl);
+    }
+    m_selectedContext = name;
+    emit selectedContextChanged();
+    return true;
+}
+
+void AppController::useContext(const QString &name)
+{
+    applyContext(name, true);
 }
 
 void AppController::setServerUrl(const QString &url)

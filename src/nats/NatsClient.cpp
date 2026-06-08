@@ -115,8 +115,10 @@ void NatsClient::completeHandshake()
     };
 
     // NGS / decentralized auth: sign the server nonce with the user NKEY seed and
-    // present the user JWT (§10). Loaded fresh so the secret isn't held long-term.
-    if (!m_credsPath.isEmpty()) {
+    // present the user JWT (§10). Only for TLS — a plaintext local server is
+    // typically no-auth, and presenting a JWT it has no account for would be
+    // rejected. Loaded fresh so the secret isn't held long-term.
+    if (m_tls && !m_credsPath.isEmpty()) {
         NatsCreds creds;
         if (creds.loadFromFile(m_credsPath) && creds.isValid()) {
             opts.insert(QStringLiteral("jwt"), creds.jwt());

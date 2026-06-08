@@ -37,9 +37,28 @@ Item {
                 onClicked: root.connect()
             }
 
+            // NATS context picker — taps cycle through ~/.config/nats/context/*.json,
+            // applying each one's server URL + creds. Hidden when none are configured.
+            FlatButton {
+                id: ctxBtn
+                anchors.right: connectBtn.left
+                anchors.rightMargin: Theme.gap
+                anchors.verticalCenter: parent.verticalCenter
+                visible: App.natsContexts.length > 0
+                text: App.selectedContext.length ? App.selectedContext : "context"
+                onClicked: {
+                    var list = App.natsContexts
+                    if (list.length === 0)
+                        return
+                    var i = list.indexOf(App.selectedContext)
+                    App.useContext(list[(i + 1) % list.length])
+                    serverField.text = App.serverUrl
+                }
+            }
+
             Rectangle {
                 anchors.left: parent.left
-                anchors.right: connectBtn.left
+                anchors.right: ctxBtn.visible ? ctxBtn.left : connectBtn.left
                 anchors.rightMargin: Theme.gap
                 anchors.verticalCenter: parent.verticalCenter
                 height: Theme.touch

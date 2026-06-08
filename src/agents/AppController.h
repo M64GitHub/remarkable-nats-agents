@@ -7,6 +7,7 @@
 #include <QHash>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 class QTimer;
@@ -24,6 +25,9 @@ class AppController : public QObject
     Q_PROPERTY(QString serverUrl READ serverUrl NOTIFY serverUrlChanged)
     Q_PROPERTY(QString selectedAgent READ selectedAgent NOTIFY selectedAgentChanged)
     Q_PROPERTY(bool agentSelected READ agentSelected NOTIFY selectedAgentChanged)
+    // NATS CLI contexts found on the system (~/.config/nats/context/*.json).
+    Q_PROPERTY(QStringList natsContexts READ natsContexts NOTIFY natsContextsChanged)
+    Q_PROPERTY(QString selectedContext READ selectedContext NOTIFY selectedContextChanged)
 
 public:
     explicit AppController(AgentProtocol *protocol, QObject *parent = nullptr);
@@ -34,6 +38,8 @@ public:
     QString serverUrl() const { return m_serverUrl; }
     QString selectedAgent() const { return m_selectedTitle; }
     bool agentSelected() const { return m_selectedRow >= 0; }
+    QStringList natsContexts() const { return m_natsContexts; }
+    QString selectedContext() const { return m_selectedContext; }
 
     // Populate the roster from static config: $AGENT_CHAT_CONFIG, else a local
     // ./agents.json, else the bundled example, else a built-in echo entry.
@@ -42,6 +48,7 @@ public:
 public slots:
     void connectToServer();                    // dial the configured server URL
     void setServerUrl(const QString &url);     // change + persist the server address
+    void useContext(const QString &name);      // apply a NATS context (url + creds)
     void refresh();                            // re-run $SRV discovery
     void selectAgent(int row);                 // choose an agent; resets the chat
     void sendPrompt(const QString &text);      // send to the selected agent
@@ -50,11 +57,15 @@ signals:
     void connectionStateChanged();
     void serverUrlChanged();
     void selectedAgentChanged();
+    void natsContextsChanged();
+    void selectedContextChanged();
     void notice(const QString &message);       // transient, surfaced by the UI
 
 private:
     void setConnectionState(const QString &state);
     bool loadRosterFromJson(const QByteArray &json);
+    void scanContexts();                              // populate m_natsContexts
+    bool applyContext(const QString &name, bool persist);
     void showStaticRoster();
     void onAgentsDiscovered(const QVector<AgentProtocol::DiscoveredAgent> &agents);
     void onHeartbeat(const QString &instanceId, int intervalS);
@@ -70,6 +81,8 @@ private:
     bool m_serverUrlPersisted = false;   // a user-set URL wins over config defaults
     QString m_credsPath;                 // NATS .creds for tls:// (NGS) auth
     bool m_credsFromEnv = false;         // $AGENT_CHAT_CREDS wins over config
+    QStringList m_natsContexts;          // available context names
+    QString m_selectedContext;           // last applied context (for the UI)
     int m_selectedRow = -1;
     QString m_selectedTitle;
     QString m_selectedSubject;
