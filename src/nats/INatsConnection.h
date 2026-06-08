@@ -20,7 +20,10 @@ public:
     using QObject::QObject;
     ~INatsConnection() override = default;
 
-    virtual void connectToServer(const QString &host, quint16 port) = 0;
+    // `tls` upgrades the connection (after the server INFO) before CONNECT; for NGS
+    // pass the path to a NATS `.creds` file so the client can JWT/NKEY-authenticate.
+    virtual void connectToServer(const QString &host, quint16 port,
+                                 bool tls = false, const QString &credsPath = QString()) = 0;
     virtual void disconnectFromServer() = 0;
     virtual bool isConnected() const = 0;
 

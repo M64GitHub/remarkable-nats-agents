@@ -2,6 +2,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 
+#include <QDir>
 #include <QFont>
 #include <QStyleHints>
 #include <QTextStream>
@@ -21,6 +22,17 @@ namespace {
 // `trap ... EXIT` restores xochitl. The in-app Exit button is the primary path.
 volatile std::sig_atomic_t g_quitRequested = 0;
 void requestQuit(int) { g_quitRequested = 1; }
+
+// Shared by the headless modes so they can target NGS: `AGENT_CHAT_TLS=1` and
+// `AGENT_CHAT_CREDS=<path to .creds>` (~ expanded).
+bool smokeTls() { return qEnvironmentVariable("AGENT_CHAT_TLS") == QLatin1String("1"); }
+QString smokeCreds()
+{
+    QString c = qEnvironmentVariable("AGENT_CHAT_CREDS");
+    if (c.startsWith(QStringLiteral("~/")))
+        c = QDir::homePath() + c.mid(1);
+    return c;
+}
 
 // Headless end-to-end smoke test of the transport + protocol stack, with no QML.
 // Enabled by setting AGENT_CHAT_SMOKE=<prompt text>. Connects, sends one prompt
@@ -66,7 +78,7 @@ int runSmoke(QGuiApplication &app, const QString &promptText)
         QCoreApplication::exit(2);
     });
 
-    nats->connectToServer(host, port);
+    nats->connectToServer(host, port, smokeTls(), smokeCreds());
     return app.exec();
 }
 
@@ -103,7 +115,7 @@ int runDiscover(QGuiApplication &app)
     });
 
     QTimer::singleShot(4000, &app, []() { QCoreApplication::exit(0); });
-    nats->connectToServer(host, port);
+    nats->connectToServer(host, port, smokeTls(), smokeCreds());
     return app.exec();
 }
 

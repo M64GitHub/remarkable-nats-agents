@@ -4,6 +4,7 @@
 #include "nats/INatsConnection.h"
 
 #include <QDateTime>
+#include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -14,8 +15,10 @@
 #include <QUrl>
 
 namespace {
-// Accept "host", "host:port", or "nats://host:port" and normalise to a URL the
-// QUrl parser in connectToServer() can read. Port defaults to 4222 there.
+// Accept "host", "host:port", "nats://host:port", or "tls://host:port" and
+// normalise to a URL the QUrl parser in connectToServer() can read. Port defaults
+// to 4222 there. A bare host keeps the plaintext default; use an explicit tls://
+// (or nats://...:port) to change scheme.
 QString normalizeServerUrl(QString s)
 {
     s = s.trimmed();
@@ -24,6 +27,15 @@ QString normalizeServerUrl(QString s)
     if (!s.contains(QStringLiteral("://")))
         s.prepend(QStringLiteral("nats://"));
     return s;
+}
+
+QString expandTilde(QString path)
+{
+    if (path == QStringLiteral("~"))
+        return QDir::homePath();
+    if (path.startsWith(QStringLiteral("~/")))
+        return QDir::homePath() + path.mid(1);
+    return path;
 }
 }  // namespace
 
@@ -77,6 +89,13 @@ AppController::AppController(AgentProtocol *protocol, QObject *parent)
     if (!saved.isEmpty()) {
         m_serverUrl = saved;
         m_serverUrlPersisted = true;
+    }
+
+    // $AGENT_CHAT_CREDS (path to a NATS .creds) overrides any config value.
+    const QString envCreds = qEnvironmentVariable("AGENT_CHAT_CREDS");
+    if (!envCreds.isEmpty()) {
+        m_credsPath = expandTilde(envCreds);
+        m_credsFromEnv = true;
     }
 }
 
@@ -152,6 +171,14 @@ bool AppController::loadRosterFromJson(const QByteArray &json)
         emit serverUrlChanged();
     }
 
+    // Config may point at a .creds file for tls:// (NGS) auth, unless overridden by
+    // $AGENT_CHAT_CREDS.
+    if (!m_credsFromEnv) {
+        const QString cfgCreds = root.value(QStringLiteral("creds")).toString();
+        if (!cfgCreds.isEmpty())
+            m_credsPath = expandTilde(cfgCreds);
+    }
+
     const QJsonArray arr = root.value(QStringLiteral("agents")).toArray();
     QVector<AgentModel::Entry> entries;
     entries.reserve(arr.size());
@@ -180,8 +207,11 @@ void AppController::connectToServer()
     const QUrl url(m_serverUrl);
     const QString host = url.host().isEmpty() ? QStringLiteral("127.0.0.1") : url.host();
     const int port = url.port(4222);
+    const bool tls = url.scheme().compare(QLatin1String("tls"), Qt::CaseInsensitive) == 0;
+    if (tls && m_credsPath.isEmpty())
+        emit notice(QStringLiteral("tls:// server but no creds configured"));
     setConnectionState(QStringLiteral("connecting"));
-    m_protocol->connection()->connectToServer(host, static_cast<quint16>(port));
+    m_protocol->connection()->connectToServer(host, static_cast<quint16>(port), tls, m_credsPath);
 }
 
 void AppController::refresh()

@@ -1,17 +1,33 @@
 #include "nats/NatsClient.h"
 
+#include "nats/NatsCreds.h"
+
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QList>
 #include <QRandomGenerator>
+#include <QSslError>
+#include <QStringList>
 #include <QtGlobal>
 
 NatsClient::NatsClient(QObject *parent)
     : INatsConnection(parent)
 {
-    connect(&m_socket, &QTcpSocket::connected, this, &NatsClient::onSocketConnected);
-    connect(&m_socket, &QTcpSocket::readyRead, this, &NatsClient::onReadyRead);
-    connect(&m_socket, &QTcpSocket::errorOccurred, this, &NatsClient::onSocketError);
-    connect(&m_socket, &QTcpSocket::disconnected, this, [this]() {
+    connect(&m_socket, &QSslSocket::connected, this, &NatsClient::onSocketConnected);
+    connect(&m_socket, &QSslSocket::encrypted, this, &NatsClient::onEncrypted);
+    connect(&m_socket, &QSslSocket::readyRead, this, &NatsClient::onReadyRead);
+    connect(&m_socket, &QSslSocket::errorOccurred, this, &NatsClient::onSocketError);
+    connect(&m_socket, &QSslSocket::sslErrors, this,
+            [this](const QList<QSslError> &errors) {
+                QStringList msgs;
+                for (const QSslError &e : errors)
+                    msgs << e.errorString();
+                // Don't ignore — a failed cert check should surface, not silently pass.
+                emit errorOccurred(QStringLiteral("TLS: %1").arg(msgs.join(QStringLiteral("; "))));
+            });
+    connect(&m_socket, &QSslSocket::disconnected, this, [this]() {
         m_handshakeDone = false;
+        m_encrypted = false;
         m_buffer.clear();
         m_pendingWrites.clear();
         m_state = State::Control;
@@ -19,11 +35,16 @@ NatsClient::NatsClient(QObject *parent)
     });
 }
 
-void NatsClient::connectToServer(const QString &host, quint16 port)
+void NatsClient::connectToServer(const QString &host, quint16 port, bool tls,
+                                 const QString &credsPath)
 {
     if (m_socket.state() != QAbstractSocket::UnconnectedState)
         m_socket.abort();
     m_handshakeDone = false;
+    m_encrypted = false;
+    m_tls = tls;
+    m_credsPath = credsPath;
+    m_nonce.clear();
     m_buffer.clear();
     m_pendingWrites.clear();
     m_state = State::Control;
@@ -49,8 +70,15 @@ bool NatsClient::isConnected() const
 
 void NatsClient::onSocketConnected()
 {
-    // Don't emit connected() yet — we wait for the server INFO line, reply with
-    // CONNECT, and only then consider the link usable (see completeHandshake()).
+    // Don't emit connected() yet — we wait for the server INFO line; then either
+    // upgrade to TLS (handleControl) or send CONNECT (completeHandshake).
+}
+
+void NatsClient::onEncrypted()
+{
+    // TLS handshake done — now it's safe to send CONNECT (with the signed nonce).
+    m_encrypted = true;
+    completeHandshake();
 }
 
 void NatsClient::onSocketError(QAbstractSocket::SocketError)
@@ -74,11 +102,34 @@ void NatsClient::completeHandshake()
     //                   to distinguish the headerless stream terminator (§6.5).
     // no_responders  -> a request to a subject with no subscribers gets an
     //                   immediate 503 reply instead of hanging until timeout.
-    const QByteArray connect =
-        "CONNECT {\"verbose\":false,\"pedantic\":false,\"tls_required\":false,"
-        "\"name\":\"agent-chat\",\"lang\":\"cpp\",\"version\":\"0.1\",\"protocol\":1,"
-        "\"headers\":true,\"no_responders\":true}\r\n";
-    m_socket.write(connect);
+    QJsonObject opts{
+        {QStringLiteral("verbose"), false},
+        {QStringLiteral("pedantic"), false},
+        {QStringLiteral("tls_required"), m_tls},
+        {QStringLiteral("name"), QStringLiteral("agent-chat")},
+        {QStringLiteral("lang"), QStringLiteral("cpp")},
+        {QStringLiteral("version"), QStringLiteral("0.1")},
+        {QStringLiteral("protocol"), 1},
+        {QStringLiteral("headers"), true},
+        {QStringLiteral("no_responders"), true},
+    };
+
+    // NGS / decentralized auth: sign the server nonce with the user NKEY seed and
+    // present the user JWT (§10). Loaded fresh so the secret isn't held long-term.
+    if (!m_credsPath.isEmpty()) {
+        NatsCreds creds;
+        if (creds.loadFromFile(m_credsPath) && creds.isValid()) {
+            opts.insert(QStringLiteral("jwt"), creds.jwt());
+            opts.insert(QStringLiteral("sig"),
+                        QString::fromLatin1(creds.signNonce(m_nonce)));
+        } else {
+            emit errorOccurred(QStringLiteral("could not load NATS credentials: %1")
+                                   .arg(m_credsPath));
+        }
+    }
+
+    QByteArray cmd = "CONNECT " + QJsonDocument(opts).toJson(QJsonDocument::Compact) + "\r\n";
+    m_socket.write(cmd);
     m_handshakeDone = true;
     if (!m_pendingWrites.isEmpty()) {
         m_socket.write(m_pendingWrites);
@@ -207,9 +258,16 @@ void NatsClient::handleControl(const QByteArray &line)
     if (line == "PONG")
         return;
     if (line.startsWith("INFO")) {
-        // We don't need to parse INFO for M1; its arrival means the link is up.
-        if (!m_handshakeDone)
+        const QJsonObject info =
+            QJsonDocument::fromJson(line.mid(4).trimmed()).object();
+        m_nonce = info.value(QStringLiteral("nonce")).toString().toUtf8();
+        const bool serverWantsTls = info.value(QStringLiteral("tls_required")).toBool();
+        if ((m_tls || serverWantsTls) && !m_encrypted) {
+            // Upgrade now; CONNECT is sent from onEncrypted() once TLS is up.
+            m_socket.startClientEncryption();
+        } else if (!m_handshakeDone) {
             completeHandshake();
+        }
         return;
     }
     if (line.startsWith("+OK"))

@@ -5,16 +5,20 @@ set -euo pipefail
 # print the run sequence. Requires developer mode + SSH access.
 # USB connection exposes the device at 10.11.99.1 by default (override RM_DEVICE).
 #
-# Because the device has no on-screen keyboard yet, set the NATS server here so
-# the app connects on launch without typing:
+# Set the NATS server here so the app connects on launch without typing:
 #
+#   # local plaintext:
 #   RM_SERVER=nats://192.168.178.35:4222 scripts/deploy.sh
+#   # Synadia Cloud (NGS) over TLS + creds:
+#   RM_SERVER=tls://connect.ngs.global \
+#     RM_CREDS=~/.config/nats/ngs-premium.creds scripts/deploy.sh
 #
-# That writes ~/agents.json on the device; the app reads it on startup and the
-# roster then fills in via $SRV discovery.
+# RM_SERVER / RM_CREDS are written to ~/agents.json on the device (the creds file
+# is copied too, chmod 600). The roster then fills in via $SRV discovery.
 
 DEVICE="${RM_DEVICE:-root@10.11.99.1}"
 RM_SERVER="${RM_SERVER:-}"
+RM_CREDS="${RM_CREDS:-}"
 cd "$(dirname "$0")/.."
 BIN="build-device/hello_remarkable"
 
@@ -28,12 +32,23 @@ scp "$BIN" "$DEVICE:hello_remarkable.new"
 ssh "$DEVICE" 'mv -f hello_remarkable.new hello_remarkable'
 echo "Copied binary to ${DEVICE}:~/hello_remarkable (atomic; safe while it's running)"
 
-if [[ -n "$RM_SERVER" ]]; then
-  tmp="$(mktemp)"
-  printf '{ "server": "%s" }\n' "$RM_SERVER" > "$tmp"
-  scp "$tmp" "$DEVICE:agents.json"
-  rm -f "$tmp"
-  echo "Wrote ${DEVICE}:~/agents.json  (server: $RM_SERVER)"
+remote_creds=""
+if [[ -n "$RM_CREDS" ]]; then
+  [[ -f "$RM_CREDS" ]] || { echo "RM_CREDS not found: $RM_CREDS" >&2; exit 1; }
+  base="$(basename "$RM_CREDS")"
+  scp "$RM_CREDS" "$DEVICE:$base"
+  ssh "$DEVICE" "chmod 600 '$base'"
+  remote_creds="/home/root/$base"   # device home for root
+  echo "Wrote ${DEVICE}:~/$base (chmod 600) — the device holds creds only"
+fi
+
+if [[ -n "$RM_SERVER" || -n "$remote_creds" ]]; then
+  fields=()
+  [[ -n "$RM_SERVER" ]]     && fields+=("\"server\": \"$RM_SERVER\"")
+  [[ -n "$remote_creds" ]]  && fields+=("\"creds\": \"$remote_creds\"")
+  json="{ $(IFS=, ; echo "${fields[*]}") }"
+  printf '%s\n' "$json" | ssh "$DEVICE" 'cat > agents.json'
+  echo "Wrote ${DEVICE}:~/agents.json -> $json"
 fi
 
 cat <<EOF

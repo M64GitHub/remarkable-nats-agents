@@ -10,6 +10,8 @@ Working and verified on the real device:
 - **M1** — NATS transport + roster + chat + streaming prompt.
 - **M2** — `$SRV` discovery + heartbeat liveness (dynamic roster).
 - **M3** — on-screen keyboard (`src/qml/Keyboard.qml`) + fills the 1620×2160 panel.
+- **M5** — TLS + NKEY/JWT auth to **NGS / Synadia Cloud** (`tls://connect.ngs.global`).
+  Verified discovering + prompting NGS agents from both desktop and the device.
 - UI polish — 3-across roster cards, chat bubbles + timestamps, in-app **Exit** button.
 
 Known issue — **typing refresh latency**: inherent to the panel. `setCursorFlashTime(0)`
@@ -17,7 +19,7 @@ Known issue — **typing refresh latency**: inherent to the panel. `setCursorFla
 waveform/partial control in `libqsgepaper`) has no public SDK header, so it's deferred.
 See IMPLEMENTATION-NOTES.md.
 
-Not done yet: TLS/NGS creds (M5), mid-stream queries (§7), `audit.agents.*` tail.
+Not done yet: mid-stream queries (§7), `audit.agents.*` tail.
 
 ## Machines & topology
 - **Build + dev host:** the Tux64 laptop (x86_64, Ubuntu 24.04). The reMarkable
@@ -80,14 +82,15 @@ If a module is in one but not the other, that's a bug waiting to happen.
 - **Text input:** the probe confirmed **no system/virtual keyboard** on the device.
   Implemented (M3): a self-contained on-screen QML keyboard (`src/qml/Keyboard.qml`);
   the hardware-keyboard path stays working for desktop/BT (`TextEdit`, Enter to send).
-- **NATS transport:** minimal NATS client in C++ over `QTcpSocket` (QtNetwork —
+- **NATS transport:** minimal NATS client in C++ over `QSslSocket` (QtNetwork —
   present on host and device), exposed to QML behind the `INatsConnection` interface
   so it can later be swapped for `nats.zig`. It speaks the text protocol incl.
   **HMSG (headers)** — needed to see service errors and the header-less stream
   terminator. The protocol layer turns a reply inbox into the v0.3 streaming
-  contract (ack → response chunks → terminator). No native deps that don't
-  cross-compile. Local plaintext `nats-server` first; TLS/NGS (NKEY/JWT) behind the
-  same interface afterward.
+  contract (ack → response chunks → terminator). **TLS + NKEY/JWT (NGS) implemented**
+  (M5): `tls://` upgrades after INFO, then CONNECT signs the nonce via OpenSSL
+  Ed25519 (`src/nats/NatsCreds.*`). No native deps that don't cross-compile
+  (OpenSSL `libcrypto` is in the sysroot + device).
 - **Secrets:** device holds NATS credentials ONLY. No Anthropic API key anywhere.
 - Bundle all QML/assets via `qt_add_qml_module` (no absolute paths).
 
@@ -122,8 +125,10 @@ older "Synadia Agents" service name was **v0.1** and is wrong for v0.3.
 
 ## Code layout
 - `src/nats/INatsConnection.h` — transport interface (the swap seam for nats.zig).
-- `src/nats/NatsClient.{h,cpp}` — NATS-over-QTcpSocket: handshake, PING/PONG,
-  PUB/SUB/UNSUB, MSG + **HMSG** parsing, `_INBOX` factory.
+- `src/nats/NatsClient.{h,cpp}` — NATS-over-QSslSocket: handshake, PING/PONG,
+  PUB/SUB/UNSUB, MSG + **HMSG** parsing, `_INBOX` factory, TLS upgrade for `tls://`.
+- `src/nats/NatsCreds.{h,cpp}` — parse a `.creds` file (JWT + NKEY seed) and
+  Ed25519-sign the server nonce (OpenSSL `libcrypto`) for NGS auth.
 - `src/agents/AgentProtocol.{h,cpp}` — v0.3 layer: `sendPrompt` → streaming
   ack/response/terminator/error signals; `discover()` ($SRV scatter-gather) +
   `startHeartbeatWatch()` (agents.hb.*.*.*) → `agentsDiscovered`/`heartbeat`.
@@ -136,7 +141,9 @@ older "Synadia Agents" service name was **v0.1** and is wrong for v0.3.
 - `src/main.cpp` — wires it together; sets e-paper hints (no cursor blink, no text
   AA). Headless verification (no QML/display): `AGENT_CHAT_SMOKE=<text>` = prompt
   round-trip; `AGENT_CHAT_DISCOVER=1` = $SRV discovery + heartbeat probe;
-  `AGENT_CHAT_TEST=chat` = ChatModel multi-conversation self-test.
+  `AGENT_CHAT_TEST=chat` = ChatModel multi-conversation self-test. Add
+  `AGENT_CHAT_TLS=1 AGENT_CHAT_CREDS=<.creds>` + `AGENT_CHAT_SMOKE_HOST=connect.ngs.global`
+  to target NGS.
 
 ## Scripts
 - `scripts/inspect-device.sh` — read-only capability probe of the connected device.

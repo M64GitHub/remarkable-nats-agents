@@ -94,6 +94,31 @@ This repo is often built on a host with no display. Two checks cover most of it:
   at-most-once and any chunk — including the terminator — can be lost.
 - Learn the prompt subject from `$SRV.INFO` (M2); never construct it from identity.
 
+## TLS + NGS auth (M5)
+
+Connecting to Synadia Cloud (`tls://connect.ngs.global`) adds TLS + decentralized
+JWT/NKEY auth on the same `QSslSocket`:
+
+- **Flow:** connect plain TCP → read server `INFO` (carries `nonce`, `tls_required`)
+  → `startClientEncryption()` → on `encrypted()` send `CONNECT`. (NGS is "INFO then
+  upgrade"; `tls_first` isn't used.) Plaintext `nats://` skips the upgrade entirely.
+- **Auth:** `NatsCreds` parses the `.creds` file (USER JWT + NKEY SEED). The seed is
+  base32-decoded — bytes `[2,34)` are the 32-byte Ed25519 seed — and used to **sign
+  the `nonce`** via OpenSSL `EVP_PKEY_ED25519`; `CONNECT` then carries `jwt` +
+  base64url(sig). The seed is a secret: in memory only, never logged.
+- **Crypto dep:** OpenSSL `libcrypto` (`find_package(OpenSSL)` → `OpenSSL::Crypto`),
+  present in sysroot + device + host. TLS itself needs no direct link — Qt's
+  `libqopensslbackend.so` plugin handles it at runtime.
+- **Cert verification:** uses the system CA bundle; the device has
+  `/etc/ssl/certs/ca-certificates.crt`, so `connect.ngs.global` verifies. We do NOT
+  `ignoreSslErrors` — a failed check is surfaced as an error.
+- **Creds on the device:** `RM_CREDS=… scripts/deploy.sh` scp's the `.creds` (chmod
+  600) and writes its path into `~/agents.json` (`"creds"`). The device holds creds
+  only — no other secrets.
+- **Headless test:** `AGENT_CHAT_TLS=1 AGENT_CHAT_CREDS=<.creds>
+  AGENT_CHAT_SMOKE_HOST=connect.ngs.global` with the SMOKE/DISCOVER modes. Verified
+  discovering + prompting NGS agents from both desktop and device.
+
 ## Testing fixtures
 
 - `scripts/echo-responder.py` — a dependency-light (nats-py only) stub that speaks

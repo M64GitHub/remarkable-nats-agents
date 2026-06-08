@@ -3,22 +3,24 @@
 #include "nats/INatsConnection.h"
 
 #include <QByteArray>
+#include <QSslSocket>
 #include <QString>
-#include <QTcpSocket>
 
-// Minimal NATS client over QTcpSocket (QtNetwork — present on both the Tux64
-// host and the device). Implements the text control protocol: INFO/CONNECT
-// handshake, PING/PONG keepalive, PUB/SUB/UNSUB, and inbound MSG + HMSG framing.
+// Minimal NATS client over QSslSocket (QtNetwork — present on host and device).
+// Implements the text control protocol: INFO/CONNECT handshake, PING/PONG
+// keepalive, PUB/SUB/UNSUB, and inbound MSG + HMSG framing.
 //
-// Scope for M1: plaintext core NATS, no TLS/JetStream. TLS/NGS (NKEY/JWT) is a
-// later milestone and slots in behind the same INatsConnection interface.
+// Plaintext core NATS and TLS+JWT/NKEY (NGS / Synadia Cloud) both run through the
+// one socket: for `tls` we connect, read INFO, upgrade (startClientEncryption),
+// then CONNECT with the signed nonce. JetStream is out of scope.
 class NatsClient : public INatsConnection
 {
     Q_OBJECT
 public:
     explicit NatsClient(QObject *parent = nullptr);
 
-    void connectToServer(const QString &host, quint16 port) override;
+    void connectToServer(const QString &host, quint16 port,
+                         bool tls = false, const QString &credsPath = QString()) override;
     void disconnectFromServer() override;
     bool isConnected() const override;
 
@@ -30,6 +32,7 @@ public:
 
 private slots:
     void onSocketConnected();
+    void onEncrypted();
     void onReadyRead();
     void onSocketError(QAbstractSocket::SocketError error);
 
@@ -42,13 +45,19 @@ private:
     void deliverPending();                  // emit once a full MSG/HMSG payload is buffered
     static QVariantMap parseHeaders(const QByteArray &block);
 
-    QTcpSocket m_socket;
+    QSslSocket m_socket;
     QByteArray m_buffer;          // raw inbound bytes awaiting parse
     QByteArray m_pendingWrites;   // outbound bytes queued before handshake
     bool m_handshakeDone = false;
     quint64 m_nextSid = 1;
     QString m_inboxPrefix;        // "_INBOX.<token>"
     quint64 m_nextInbox = 1;
+
+    // TLS / NGS auth
+    bool m_tls = false;
+    bool m_encrypted = false;
+    QString m_credsPath;
+    QByteArray m_nonce;           // server nonce from INFO, signed into CONNECT
 
     // Frame parser: between a MSG/HMSG control line and its payload we sit in
     // Payload state until totalLen + 2 (trailing CRLF) bytes are buffered.

@@ -68,6 +68,8 @@ private:
     QString m_connectionState = QStringLiteral("disconnected");
     QString m_serverUrl = QStringLiteral("nats://127.0.0.1:4222");
     bool m_serverUrlPersisted = false;   // a user-set URL wins over config defaults
+    QString m_credsPath;                 // NATS .creds for tls:// (NGS) auth
+    bool m_credsFromEnv = false;         // $AGENT_CHAT_CREDS wins over config
     int m_selectedRow = -1;
     QString m_selectedTitle;
     QString m_selectedSubject;

@@ -62,6 +62,18 @@ python examples/01-echo.py --url nats://127.0.0.1:4222 --owner local --session-n
 # -> serves agents.prompt.echo.local.test, which is in the bundled roster
 ```
 
+## 2c. Connect to Synadia Cloud (NGS)
+The client speaks TLS + NKEY/JWT, so it can reach agents on `tls://connect.ngs.global`
+(not just a LAN server). Point it at a `.creds` file:
+```sh
+# Desktop, against NGS:
+AGENT_CHAT_SERVER unused — set the server in the roster field to tls://connect.ngs.global,
+# and provide creds via config or env:
+AGENT_CHAT_CREDS=~/.config/nats/ngs-premium.creds scripts/run-desktop.sh
+```
+On the device, deploy the server + creds together (see §4). The creds file is the only
+secret the device holds; cert verification uses the device's system CA bundle.
+
 ## 3. Cross-compile for the device
 Install the ferrari SDK (a near OS version is fine — `build-device.sh` cross-checks
 the sysroot Qt against the device). Login-gated download:
@@ -83,7 +95,10 @@ The device has no on-screen keyboard yet (that's a later milestone), so pass the
 server address at deploy time; it's written to `~/agents.json` on the device and
 read on launch.
 ```sh
+# local plaintext server:
 RM_SERVER=nats://192.168.178.35:4222 scripts/deploy.sh   # use YOUR server's IP:port
+# …or Synadia Cloud (TLS + creds — the creds file is copied to the device, chmod 600):
+RM_SERVER=tls://connect.ngs.global RM_CREDS=~/.config/nats/ngs-premium.creds scripts/deploy.sh
 ```
 
 **Step 2 — run it on the panel.** The app draws straight to the e-paper, so the
