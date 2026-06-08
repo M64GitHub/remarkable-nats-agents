@@ -1,66 +1,60 @@
-# hello-remarkable
+# remarkable agent chat
 
-A minimal Qt Quick demo for the **reMarkable Paper Pro** (`ferrari`, aarch64).
-Develop the UI offline on your desktop; cross-compile and deploy when ready.
+A multi-agent chat client for the **reMarkable Paper Pro** (`ferrari`, aarch64),
+talking to agents over the **Synadia Agents Protocol on NATS** — an agent roster
+plus a chat pane. Starts as a minimal Qt Quick app and grows from there.
 
-## 0. One-time: enable Developer Mode on the device
-Required before you can SSH in or run custom binaries:
-https://developer.remarkable.com/documentation/developer-mode
+Development happens entirely on the **Tux64** (x86_64 Ubuntu), which is the SDK's
+native host. The device is connected over SSH for inspection and deployment.
 
-## 1. Iterate the UI on your desktop (no device, no SDK)
-reMarkable apps are pure QML, so the UI runs in the desktop `qml` runtime.
+## 0. Prerequisites
+- reMarkable **Developer Mode** enabled:
+  https://developer.remarkable.com/documentation/developer-mode
+- Device reachable over SSH (USB default: `root@10.11.99.1`).
+- Qt6 on the Tux64 for desktop preview:
+  ```sh
+  sudo apt install qml6-module-qtquick qml6-module-qtquick-window qt6-declarative-dev
+  ```
+- A local NATS server for offline testing: `sudo apt install nats-server` (or grab a
+  binary from the NATS releases), plus the `nats` CLI if you want to poke subjects.
 
+## 1. Inspect the connected device (do this first)
 ```sh
-# macOS
-brew install qt
-# Ubuntu
-sudo apt install qml6-module-qtquick qt6-declarative-dev
-
-scripts/run-desktop.sh        # or: qml src/Main.qml
+scripts/inspect-device.sh        # read-only; set RM_DEVICE if not root@10.11.99.1
 ```
+This reports the OS version, available Qt/QML modules, the epaper platform +
+scenegraph plugins, input devices (the keyboard question), screen/fonts, and memory.
+Use it to ground module and input decisions in what's actually on the device.
 
-Touch on-device arrives as mouse events, so `MouseArea` behaves the same here.
-
-## 2. Cross-compile for the device (x86_64 Linux host)
-The reMarkable SDK ships **only** as an x86_64-Linux-host toolchain — it does not
-run on Apple silicon. Build on your x86_64 Linux machine.
-
+## 2. Iterate the UI on the desktop (no device needed)
 ```sh
-# Download the ferrari SDK matching your device's OS version:
-#   https://developer.remarkable.com/links
-# (Check version on device:  cat /etc/os-release | grep ^VERSION= )
+scripts/run-desktop.sh           # or: qml src/Main.qml
+```
+Touch arrives as mouse events, so it behaves the same here. Remember: this is a
+logic/layout preview, not an e-paper fidelity preview.
 
-chmod u+x meta-toolchain-remarkable-<ver>-ferrari-public-x86_64-toolchain.sh
+## 3. Cross-compile for the device
+```sh
+# Install the ferrari SDK matching the device's OS version (from inspect-device.sh):
+#   https://developer.remarkable.com/links
 ./meta-toolchain-remarkable-<ver>-ferrari-public-x86_64-toolchain.sh -d ~/rm-sdk/ferrari
 
-scripts/build-device.sh       # sources the SDK env and builds build-device/hello_remarkable
+scripts/build-device.sh          # set RM_SDK_ENV if the env file is elsewhere
 ```
 
-If your SDK env file lives elsewhere: `RM_SDK_ENV=/path/to/environment-setup-* scripts/build-device.sh`
-
-## 3. Deploy and run
-Connect the device over USB (defaults to `10.11.99.1`):
-
+## 4. Deploy and run
 ```sh
-scripts/deploy.sh             # scp + prints the run sequence
+scripts/deploy.sh                # scp + prints the on-device run sequence
 ```
-
-Then on the device:
-
-```sh
-ssh root@10.11.99.1
-systemctl stop xochitl
-QT_QUICK_BACKEND=epaper ./hello_remarkable -platform epaper
-# Ctrl-C when done
-systemctl start xochitl
-```
+On the device: `systemctl stop xochitl` → run with `-platform epaper` → Ctrl-C →
+`systemctl start xochitl`.
 
 ## Notes
-- Paper Pro does **not** need the touch rotate/invert env vars the rm1/rm2 docs mention.
-- On software **3.17**, you may need to copy `libqsgepaper.so` from the SDK sysroot
-  to `/usr/lib/plugins/scenegraph/` on the device (see `scripts/deploy.sh`).
-- Pure Qt Quick only — **no Qt Widgets**.
-- Marker/pen input is more involved and intentionally omitted from this starter.
+- Pure Qt Quick only — no Qt Widgets, no WebEngine.
+- Device holds NATS credentials only; no Anthropic API key on the device.
+- Paper Pro does not need the rm1/rm2 touch rotate/invert env vars.
+- On software 3.17 you may need to copy `libqsgepaper.so` to the device (see
+  `scripts/deploy.sh`); confirm from the inspection output whether it's present.
 
 ## References
 - SDK: https://developer.remarkable.com/documentation/sdk

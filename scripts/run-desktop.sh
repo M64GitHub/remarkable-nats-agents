@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 #
-# Fast UI iteration on your desktop (Mac or Linux), no device needed.
-# Uses the system Qt6 'qml' runtime to load the UI directly.
+# Fast UI iteration on the desktop (Tux64 / any Qt6 host) — no device needed.
+# Loads the QML directly with the Qt6 'qml' runtime.
 #
-#   macOS:   brew install qt
-#   Ubuntu:  sudo apt install qml6-module-qtquick qt6-declarative-dev
+#   Ubuntu 24.04:  sudo apt install qml6-module-qtquick \
+#                       qml6-module-qtquick-window qt6-declarative-dev
+#   (macOS:        brew install qt)
 #
-# If `qml` is not on your PATH (common on Homebrew), use the full path, e.g.
-#   exec "$(brew --prefix qt)/bin/qml" src/Main.qml
-
 cd "$(dirname "$0")/.."
-exec qml src/Main.qml
+
+QML_BIN="$(command -v qml || command -v qml6 || true)"
+if [[ -z "$QML_BIN" ]]; then
+  echo "No 'qml'/'qml6' runtime found. Install Qt6 (see comments in this script)." >&2
+  exit 1
+fi
+exec "$QML_BIN" src/Main.qml
