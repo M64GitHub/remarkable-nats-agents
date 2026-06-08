@@ -43,5 +43,5 @@ cmake -S . -B build-device -DCMAKE_BUILD_TYPE=Release
 cmake --build build-device --parallel
 
 echo
-echo "Built: build-device/hello_remarkable"
+echo "Built: build-device/rm-agents"
 echo "Deploy it with: scripts/deploy.sh"

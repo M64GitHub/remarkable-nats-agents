@@ -20,7 +20,7 @@ DEVICE="${RM_DEVICE:-root@10.11.99.1}"
 RM_SERVER="${RM_SERVER:-}"
 RM_CREDS="${RM_CREDS:-}"
 cd "$(dirname "$0")/.."
-BIN="build-device/hello_remarkable"
+BIN="build-device/rm-agents"
 
 [[ -f "$BIN" ]] || { echo "Missing $BIN — run scripts/build-device.sh first." >&2; exit 1; }
 
@@ -28,9 +28,9 @@ BIN="build-device/hello_remarkable"
 # with "Text file busy" (ETXTBSY) if the app is currently running on the device;
 # rename replaces the directory entry while the running process keeps its inode,
 # so the NEXT launch gets the new binary.
-scp "$BIN" "$DEVICE:hello_remarkable.new"
-ssh "$DEVICE" 'mv -f hello_remarkable.new hello_remarkable'
-echo "Copied binary to ${DEVICE}:~/hello_remarkable (atomic; safe while it's running)"
+scp "$BIN" "$DEVICE:rm-agents.new"
+ssh "$DEVICE" 'mv -f rm-agents.new rm-agents'
+echo "Copied binary to ${DEVICE}:~/rm-agents (atomic; safe while it's running)"
 
 remote_creds=""
 if [[ -n "$RM_CREDS" ]]; then
@@ -57,7 +57,7 @@ Run it on the device (the app draws to the e-paper panel; stop the stock UI firs
 
   ssh ${DEVICE}
   systemctl stop xochitl
-  QT_QUICK_BACKEND=epaper ./hello_remarkable -platform epaper
+  QT_QUICK_BACKEND=epaper ./rm-agents -platform epaper
   # ... use it on the panel ...  press Ctrl-C to quit, then restore the stock UI:
   systemctl start xochitl
 
@@ -65,7 +65,7 @@ One-liner that ALWAYS restores xochitl even if the app errors or you Ctrl-C:
 
   ssh ${DEVICE} 'systemctl stop xochitl; \\
     trap "systemctl start xochitl" EXIT; \\
-    QT_QUICK_BACKEND=epaper ./hello_remarkable -platform epaper'
+    QT_QUICK_BACKEND=epaper ./rm-agents -platform epaper'
 
 Notes:
  - Paper Pro (ferrari) does NOT need the touch rotate/invert env vars from the

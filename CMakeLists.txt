@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
-project(hello_remarkable VERSION 0.1 LANGUAGES CXX)
+project(rm_agents VERSION 0.1 LANGUAGES CXX)
+# Target id stays underscore (valid C++ identifier for Qt's generated QML plugin
+# symbols); the shipped binary is "rm-agents" (set via OUTPUT_NAME below).
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -15,7 +17,7 @@ find_package(Qt6 REQUIRED COMPONENTS Quick Network)
 find_package(OpenSSL REQUIRED)
 qt_standard_project_setup(REQUIRES 6.5)
 
-qt_add_executable(hello_remarkable
+qt_add_executable(rm_agents
     src/main.cpp
     src/nats/INatsConnection.h   # header-only QObject: listed so AUTOMOC processes it
     src/nats/NatsClient.cpp
@@ -30,7 +32,7 @@ qt_add_executable(hello_remarkable
 # registers it as a plain type and `Theme.<prop>` resolves to undefined at runtime.
 set_source_files_properties(src/qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
-qt_add_qml_module(hello_remarkable
+qt_add_qml_module(rm_agents
     URI AgentChat
     VERSION 1.0
     QML_FILES
@@ -47,5 +49,7 @@ qt_add_qml_module(hello_remarkable
     RESOURCES
         config/agents.example.json)
 
-target_include_directories(hello_remarkable PRIVATE src)
-target_link_libraries(hello_remarkable PRIVATE Qt6::Quick Qt6::Network OpenSSL::Crypto)
+set_target_properties(rm_agents PROPERTIES OUTPUT_NAME rm-agents)
+
+target_include_directories(rm_agents PRIVATE src)
+target_link_libraries(rm_agents PRIVATE Qt6::Quick Qt6::Network OpenSSL::Crypto)

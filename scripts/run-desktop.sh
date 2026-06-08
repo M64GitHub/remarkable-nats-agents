@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 #
-# Fast UI iteration on the desktop (Tux64 / any Qt6 host) — no device needed.
+# Fast UI iteration on the desktop (the Linux laptop / any Qt6 host) — no device.
 #
 # The app now registers C++ types (the NATS client, the models) and bundles its
 # QML as a module, so we build the real binary and run it — the bare `qml`
@@ -28,4 +28,4 @@ cmake --build build-desktop --parallel
 
 # Use the desktop Qt's libraries at runtime.
 export LD_LIBRARY_PATH="$QT_ROOT/lib:${LD_LIBRARY_PATH:-}"
-exec ./build-desktop/hello_remarkable "$@"
+exec ./build-desktop/rm-agents "$@"

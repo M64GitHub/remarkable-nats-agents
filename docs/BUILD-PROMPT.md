@@ -1,6 +1,6 @@
 # Claude Code build prompt
 
-Paste this when starting Claude Code in the repo on the Tux64.
+Paste this when starting Claude Code in the repo on the Linux laptop.
 
 ---
 
@@ -8,7 +8,7 @@ This repo is a Qt Quick starter for the reMarkable Paper Pro (code name `ferrari
 aarch64, color e-paper). Read CLAUDE.md, README.md, and the existing src/ and
 scripts/ before doing anything.
 
-We are developing entirely on this machine (Tux64, x86_64 Ubuntu) — it is the SDK's
+We are developing entirely on this machine (a Linux laptop, x86_64 Ubuntu) — it is the SDK's
 native host. The Paper Pro is connected and SSH-reachable. I will give you the SSH
 command for it; the scripts default to `root@10.11.99.1` and honor `RM_DEVICE`.
 

@@ -1,149 +1,214 @@
-# remarkable agent chat
+# remarkable-nats-agents
 
-A multi-agent chat client for the **reMarkable Paper Pro** (`ferrari`, aarch64),
-talking to agents over the **Synadia Agent Protocol v0.3 on NATS** — an agent roster
-plus a chat pane, drawn directly to e-paper.
+> A multi-agent **AI chat client that runs natively on the reMarkable Paper Pro**
+> e-paper tablet, talking to AI agents over **NATS** (the Synadia Agent Protocol).
+> Discover agents on the bus, chat with replies that **stream in token-by-token**,
+> type on a **built-in on-screen keyboard**, and **attach your handwritten notes** —
+> all on the panel. Or run the very same app as a desktop preview for fast iteration.
 
-**What works today** (verified on the device): a roster that auto-discovers agents
-via `$SRV` with live heartbeat status, a chat pane that streams replies, an
-on-screen keyboard, per-agent history, and an in-app Exit. Pure Qt Quick, hand-rolled
-flat e-paper UI. See `IMPLEMENTATION-NOTES.md` for design + gotchas, `CLAUDE.md` for
-status and the known typing-latency issue.
+Pure **Qt Quick / QML** (Qt 6.8), **e-paper-first** (monochrome, high-contrast, no
+animations, large touch targets), cross-compiled with the official reMarkable SDK.
+It connects to a local `nats-server` on your LAN **or** to **Synadia Cloud (NGS)**
+over TLS with NKEY/JWT credentials — and you pick which right inside the UI.
 
-Development happens entirely on the **Tux64** (x86_64 Ubuntu), which is the SDK's
-native host. The device is connected over SSH for inspection and deployment.
+> 🛠️ **Setting up?** See **[Prerequisites](#prerequisites)**. To build for the device
+> you'll need the reMarkable **ferrari SDK** —
+> [download it here](https://developer.remarkable.com/links) (matches your device's
+> OS version).
 
-## 0. Prerequisites
-- reMarkable **Developer Mode** enabled:
-  https://developer.remarkable.com/documentation/developer-mode
-- Device reachable over SSH (USB default: `root@10.11.99.1`).
-  **Nothing to install on the device** — it already has Qt 6.8.2, the `epaper`
-  plugin, and `libqsgepaper.so`. It only needs NATS credentials, later (TLS/NGS).
-- **Qt6 on the Tux64 for the desktop preview.** Use Qt **6.8.2** to match the device
-  (Ubuntu's apt Qt is 6.4.2, below the 6.5 floor). Easiest is `aqtinstall`:
+---
+
+## Features
+
+- **Agent roster** via NATS micro-service discovery (`$SRV`), shown as a grid of
+  cards with **live heartbeat status** — agents light up as they come online and
+  fade as they go.
+- **Streaming chat** — prompts go out request/reply; the agent's answer streams back
+  chunk-by-chunk into the bubble. **Per-agent history** is preserved as you switch.
+- **Built-in on-screen keyboard** — the device ships no system keyboard, so this one
+  is hand-rolled in QML (a hardware / Bluetooth keyboard works too).
+- **Attach handwritten notes** 📝 — browse your notebooks, choose a page range, and
+  attach the pages as images a **vision agent can read** (it really does read your
+  handwriting back to you).
+- **Local _or_ cloud** — a plaintext LAN `nats-server`, or **Synadia Cloud (NGS)**
+  over TLS + NKEY/JWT. Switch endpoints with the in-app **NATS context picker**
+  (reads your `~/.config/nats/context/*.json`).
+- **E-paper-tuned** — message bubbles + timestamps, discrete repaints, steady cursor,
+  non-anti-aliased text, and an in-app **Exit** (the device has no reliable Ctrl-C).
+- **Two ways to run** — on the e-paper panel, and as a desktop window for fast dev.
+
+## Architecture
+
+```
+        QML  (hand-rolled flat e-paper UI: roster, chat, keyboard, note browser)
+                 │   talks only to ↓  (the "App" context property)
+        AppController
+           ├── AgentModel   — roster + heartbeat liveness
+           ├── ChatModel    — per-agent conversations (streaming)
+           └── NoteStore    — notebook browser for attachments
+                 │
+        AgentProtocol   — Synadia Agent Protocol v0.3:
+                          $SRV discovery · streaming prompts · heartbeats
+                 │
+        INatsConnection ◀── clean transport seam (swappable, e.g. nats.zig)
+                 │
+        NatsClient      — NATS wire over QSslSocket
+                          (TLS + NKEY/JWT for NGS; plaintext for LAN)
+```
+
+The QML layer never touches NATS; everything above the wire depends only on
+`INatsConnection`. See **[IMPLEMENTATION-NOTES.md](IMPLEMENTATION-NOTES.md)** for the
+design rationale and the hard-won gotchas.
+
+## Status
+
+| Milestone | What | State |
+|-----------|------|-------|
+| M1 | NATS transport + agent roster + chat + streaming prompt | ✅ |
+| M2 | `$SRV` discovery + heartbeat liveness (dynamic roster) | ✅ |
+| M3 | On-screen keyboard + full-panel layout | ✅ |
+| M5 | TLS + NKEY/JWT for NGS / Synadia Cloud + context picker | ✅ |
+| M6 | Attach notebook pages as images (v1: device thumbnails) | ✅ |
+| — | Full-resolution in-app `.rm` renderer ([plan](RM-PARSER-RENDERER.md)) | planned |
+| M4 | Mid-stream queries (§7) + `audit.*` activity feed | planned |
+
+## Hardware & topology
+
+- **Device** — reMarkable **Paper Pro** (code name `ferrari`, aarch64 cortex-a53,
+  color e-paper). OS `5.7.121` (scarthgap), **Qt 6.8.2**, panel **1620×2160**.
+  Developer mode + SSH (USB default `root@10.11.99.1`; override with `RM_DEVICE`).
+- **Build host** — a **Linux laptop** (x86_64). The reMarkable SDK runs natively here;
+  no Docker/emulation.
+- **Agents / compute** — run elsewhere on the same NATS; the device is a thin client
+  that never runs inference and **holds NATS credentials only** (no API keys).
+
+---
+
+## Prerequisites
+
+- reMarkable **Developer Mode** + SSH access
+  ([guide](https://developer.remarkable.com/documentation/developer-mode)). The device
+  itself needs **nothing installed** — Qt, the `epaper` plugin and `libqsgepaper` are
+  already on it.
+- **Qt 6.8 on the Linux laptop** for the desktop preview/build (Ubuntu's apt Qt is
+  6.4, below our floor). Easiest is `aqtinstall`:
   ```sh
   python3 -m venv ~/.venvs/aqt && ~/.venvs/aqt/bin/pip install aqtinstall
   ~/.venvs/aqt/bin/aqt install-qt linux desktop 6.8.2 linux_gcc_64 --outputdir ~/Qt
   ```
-  `scripts/run-desktop.sh` looks in `~/Qt/6.8.2/gcc_64` (override with `QT_ROOT`).
-- **For local protocol testing:** a NATS server (`nats-server` on `PATH`) and the
-  Python NATS client for the test stub / example agents:
+- **reMarkable ferrari SDK** (only for on-device builds) — a login-gated download from
+  **<https://developer.remarkable.com/links>**; pick the build matching your device's
+  OS version (a near version is fine — `build-device.sh` cross-checks the sysroot Qt).
+  ```sh
+  ./meta-toolchain-remarkable-<ver>-ferrari-public-x86_64-toolchain.sh -d ~/rm-sdk
+  ```
+- **For local protocol testing** — a `nats-server` on `PATH`, plus the Python NATS
+  client for the test stub / example agents:
   ```sh
   python3 -m venv ~/.venvs/natstest && ~/.venvs/natstest/bin/pip install nats-py
   ```
 
-## 1. Inspect the connected device (do this first)
+---
+
+## Quick start
+
+### 1. Inspect the connected device (do this first)
 ```sh
 scripts/inspect-device.sh        # read-only; set RM_DEVICE if not root@10.11.99.1
 ```
-This reports the OS version, available Qt/QML modules, the epaper platform +
-scenegraph plugins, input devices (the keyboard question), screen/fonts, and memory.
-Use it to ground module and input decisions in what's actually on the device.
+Reports OS, Qt/QML modules, the epaper plugins, input devices, screen, fonts, memory.
 
-## 2. Iterate the UI on the desktop (no device needed)
+### 2. Iterate the UI on the desktop (no device needed)
 ```sh
-scripts/run-desktop.sh           # builds with CMake (Qt from ~/Qt) and runs the app
+scripts/run-desktop.sh           # builds with CMake (Qt from ~/Qt) and runs rm-agents
 ```
-The app registers C++ types and bundles its QML as a module, so the preview is the
-real binary (not the bare `qml` runtime). Touch arrives as mouse events, so it
-behaves the same here. Remember: this is a logic/layout preview, not an e-paper
-fidelity preview.
+The preview is the real binary (it registers C++ types + bundles its QML). Touch
+arrives as mouse events. It's a logic/layout check — never an e-paper fidelity check.
 
-## 2b. Test the protocol end-to-end (no device, no display needed)
+To browse notebooks in the desktop preview, point the note store at a sample copy of
+the device's library:
 ```sh
-# One-shot: starts nats-server, runs an echo stub, drives the app's headless
-# prompt path, and asserts the streamed reply.
+AGENT_CHAT_XOCHITL=/path/to/xochitl-sample scripts/run-desktop.sh
+```
+
+### 3. Test the protocol end-to-end (no device, no display)
+```sh
 QT_ROOT=~/Qt/6.8.2/gcc_64 ~/.venvs/natstest/bin/python scripts/smoke-test.py
 ```
-For a *real, spec-compliant* counterparty (registers on `$SRV`, heartbeats), run an
-example agent from the Synadia SDK against a local `nats-server`:
+Starts `nats-server`, runs an echo stub, drives the app's headless prompt path, and
+asserts the streamed reply. For a real, spec-compliant counterparty, run an example
+agent from the Synadia SDK (registers on `$SRV`, heartbeats):
 ```sh
 python examples/01-echo.py --url nats://127.0.0.1:4222 --owner local --session-name test
-# -> serves agents.prompt.echo.local.test, which is in the bundled roster
 ```
 
-## 2c. Connect to Synadia Cloud (NGS)
-The client speaks TLS + NKEY/JWT, so it can reach agents on `tls://connect.ngs.global`
-(not just a LAN server). Point it at a `.creds` file:
-```sh
-# Desktop, against NGS:
-AGENT_CHAT_SERVER unused — set the server in the roster field to tls://connect.ngs.global,
-# and provide creds via config or env:
-AGENT_CHAT_CREDS=~/.config/nats/ngs-premium.creds scripts/run-desktop.sh
-```
-On the device, deploy the server + creds together (see §4). The creds file is the only
-secret the device holds; cert verification uses the device's system CA bundle.
+### 4. Connect to Synadia Cloud (NGS)
+The client speaks TLS + NKEY/JWT, so it can reach agents on `tls://connect.ngs.global`.
+In the UI, tap the **context picker** to choose an NGS context, or set the server to
+`tls://connect.ngs.global` and provide a `.creds` file (via config or
+`AGENT_CHAT_CREDS`). Cert verification uses the system CA bundle.
 
-## 3. Cross-compile for the device
-Install the ferrari SDK (a near OS version is fine — `build-device.sh` cross-checks
-the sysroot Qt against the device). Login-gated download:
-https://developer.remarkable.com/links
-```sh
-chmod u+x meta-toolchain-remarkable-<ver>-ferrari-public-x86_64-toolchain.sh
-./meta-toolchain-remarkable-<ver>-ferrari-public-x86_64-toolchain.sh -d ~/rm-sdk
+---
 
+## Cross-compile & run on the device
+
+### Build
+```sh
 scripts/build-device.sh          # sources the SDK env; set RM_SDK_ENV to override
 ```
-Output `build-device/hello_remarkable` is an aarch64 ELF (verify with `file`).
+Produces `build-device/rm-agents`, an aarch64 ELF (verify with `file`).
 
-## 4. Deploy and run on the reMarkable
-The device must be reachable by SSH (USB `root@10.11.99.1`, or set `RM_DEVICE`) and,
-to reach your NATS server, on the **same Wi-Fi/LAN** as the machine running it.
-
-**Step 1 — copy the app (and tell it where your NATS server is).**
-The device has no on-screen keyboard yet (that's a later milestone), so pass the
-server address at deploy time; it's written to `~/agents.json` on the device and
-read on launch.
+### Deploy (binary + where to connect)
+The device has no on-screen keyboard until you're in the app, so set the NATS server
+at deploy time — it's written to `~/agents.json` and read on launch.
 ```sh
 # local plaintext server:
-RM_SERVER=nats://192.168.178.35:4222 scripts/deploy.sh   # use YOUR server's IP:port
-# …or Synadia Cloud (TLS + creds — the creds file is copied to the device, chmod 600):
+RM_SERVER=nats://192.168.1.50:4222 scripts/deploy.sh        # use YOUR server's IP:port
+# …or Synadia Cloud (the .creds file is copied too, chmod 600):
 RM_SERVER=tls://connect.ngs.global RM_CREDS=~/.config/nats/ngs-premium.creds scripts/deploy.sh
 ```
 
-**Step 2 — run it on the panel.** The app draws straight to the e-paper, so the
-stock UI (`xochitl`) must be stopped first, then restored when you quit.
+### Run on the panel
+The app draws straight to the e-paper, so stop the stock UI (`xochitl`) first, then
+restore it when you quit. Safest is the one-liner that **always** restores xochitl —
+quit cleanly with the in-app **Exit** button (top-right of the roster):
 ```sh
-ssh root@10.11.99.1
-systemctl stop xochitl                                   # blanks the stock UI
-QT_QUICK_BACKEND=epaper ./hello_remarkable -platform epaper
-#   ↑ the app now shows on the panel: tap an agent, send a prompt.
-#   Tap "Exit" (top-right of the roster) when done — Ctrl-C usually does NOT
-#   work over ssh (no PTY forwards the signal).
-systemctl start xochitl                                  # ALWAYS restore the stock UI
+ssh root@10.11.99.1 'systemctl stop xochitl; trap "systemctl start xochitl" EXIT; \
+  QT_QUICK_BACKEND=epaper ./rm-agents -platform epaper'
+```
+> ⚠️ Ctrl-C usually isn't delivered over `ssh` without a PTY — use **Exit** in the app
+> (it quits cleanly, firing the trap that brings `xochitl` back).
+
+**Sanity check without stopping xochitl** (headless; confirms the device reaches your
+server and lists agents):
+```sh
+ssh root@10.11.99.1 'AGENT_CHAT_DISCOVER=1 AGENT_CHAT_SMOKE_HOST=<server-ip> \
+  QT_QPA_PLATFORM=offscreen ./rm-agents'
 ```
 
-> ⚠️ Always run `systemctl start xochitl` when you're finished, or the device will
-> sit on a blank screen until reboot. Safer one-liner that restores it no matter how
-> the app exits (Exit button, closed session, or crash):
-> ```sh
-> ssh root@10.11.99.1 'systemctl stop xochitl; trap "systemctl start xochitl" EXIT; \
->   QT_QUICK_BACKEND=epaper ./hello_remarkable -platform epaper'
-> ```
-> Tapping **Exit** quits the app cleanly, which fires the trap and restores xochitl.
+---
 
-**Changing the server later:** re-run Step 1 with a new `RM_SERVER`, or edit
-`~/agents.json` on the device. (Once the on-screen keyboard milestone lands, you'll
-be able to type the address in the app directly.)
+## Documentation
 
-**Sanity check without stopping xochitl** (headless; verifies the device reaches
-your server and lists agents):
-```sh
-ssh root@10.11.99.1 'AGENT_CHAT_DISCOVER=1 AGENT_CHAT_SMOKE_HOST=192.168.178.35 \
-  QT_QPA_PLATFORM=offscreen ./hello_remarkable'
-```
+- **[CLAUDE.md](CLAUDE.md)** — project brief, current status, constraints, protocol.
+- **[IMPLEMENTATION-NOTES.md](IMPLEMENTATION-NOTES.md)** — architecture rationale and
+  the gotchas (Qt/QML, NATS wire, TLS/NGS, e-paper refresh, attachments).
+- Attachments groundwork: **[FILE-STORE.md](FILE-STORE.md)** (how the device stores
+  documents), **[READING-NOTES.md](READING-NOTES.md)** (thumbnails as LLM input),
+  **[RM-PARSER-RENDERER.md](RM-PARSER-RENDERER.md)** (the planned full-res renderer).
+- Protocol: the **Synadia Agent Protocol** (v0.3) the client implements.
 
-## Notes
-- Pure Qt Quick only — no Qt Widgets, no WebEngine. UI is hand-rolled flat QtQuick.
-- Protocol is the **Synadia Agent Protocol v0.3** (service name `agents`, verb-first
-  subjects, streaming chunk responses). Spec lives at
-  `/home/m64/space/synadia-ai/nats-ai-docs/core-protocol.md`.
-- Device holds NATS credentials only; no Anthropic API key on the device.
-- Paper Pro does not need the rm1/rm2 touch rotate/invert env vars.
-- `libqsgepaper.so` is already present on this device (5.7.121) — no copy needed.
-  (The old 3.17 copy step in `scripts/deploy.sh` is only for older software.)
+## Notes & constraints
+
+- Pure Qt Quick only — **no Qt Widgets, no WebEngine**. UI is hand-rolled flat QtQuick.
+- E-paper-first: no animations/gradients/spinners; high contrast; large targets.
+- The device holds **NATS credentials only** — no Anthropic/API keys on the device.
+- `libqsgepaper.so` is already on this device (5.7.121) — no copy needed.
+- Paper Pro doesn't need the rm1/rm2 touch rotate/invert env vars.
 
 ## References
-- SDK: https://developer.remarkable.com/documentation/sdk
-- Qt Quick on e-paper: https://developer.remarkable.com/documentation/qt_epaper
-- Official examples: https://github.com/reMarkable/remarkable-developer-examples
+
+- reMarkable SDK: <https://developer.remarkable.com/documentation/sdk>
+- Qt Quick on e-paper: <https://developer.remarkable.com/documentation/qt_epaper>
+- SDK downloads (ferrari toolchain): <https://developer.remarkable.com/links>
+- Official examples: <https://github.com/reMarkable/remarkable-developer-examples>

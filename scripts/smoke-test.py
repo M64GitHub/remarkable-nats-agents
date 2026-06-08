@@ -50,7 +50,7 @@ async def serve_echo(nc: NATS) -> None:
 
 
 async def main() -> int:
-    binary = sys.argv[1] if len(sys.argv) > 1 else "build-desktop/hello_remarkable"
+    binary = sys.argv[1] if len(sys.argv) > 1 else "build-desktop/rm-agents"
     qt_root = os.environ.get("QT_ROOT", os.path.expanduser("~/Qt/6.8.2/gcc_64"))
     if not os.path.exists(binary):
         print(f"binary not found: {binary} (build it first)", file=sys.stderr)

@@ -64,7 +64,7 @@ This repo is often built on a host with no display. Two checks cover most of it:
 
 - **`qmlcachegen`** (runs during the build) AOT-compiles every QML file, which
   statically validates types, properties, and signal handlers.
-- **Headless instantiation:** `QT_QPA_PLATFORM=offscreen ./hello_remarkable` for a
+- **Headless instantiation:** `QT_QPA_PLATFORM=offscreen ./rm-agents` for a
   couple of seconds, with stderr watched for QML warnings — this is what caught the
   singleton bug. AOT compilation alone did **not** catch it (it's a runtime
   resolution failure).
@@ -174,7 +174,7 @@ normal developer shell — only the agent harness.
   preview stays a 1080×1440 portrait window. Still size off `Screen`/proportions —
   never hardcode.
 - **Run sequence:** `systemctl stop xochitl` → `QT_QUICK_BACKEND=epaper
-  ./hello_remarkable -platform epaper` → quit → `systemctl start xochitl`. Use the
+  ./rm-agents -platform epaper` → quit → `systemctl start xochitl`. Use the
   `trap "systemctl start xochitl" EXIT` one-liner in `deploy.sh` so the stock UI is
   always restored.
 - **Quitting:** there is no reliable Ctrl-C — `ssh` without a PTY doesn't forward

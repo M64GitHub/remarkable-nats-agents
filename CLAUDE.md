@@ -30,7 +30,7 @@ See IMPLEMENTATION-NOTES.md.
 Not done yet: mid-stream queries (§7), `audit.agents.*` tail.
 
 ## Machines & topology
-- **Build + dev host:** the Tux64 laptop (x86_64, Ubuntu 24.04). The reMarkable
+- **Build + dev host:** the Linux laptop (x86_64, Ubuntu 24.04). The reMarkable
   SDK runs natively here — no Docker/emulation. All work happens on this machine.
 - **Target device:** reMarkable Paper Pro, code name **`ferrari`**, arch
   **aarch64** (cortex-a53-crypto), color e-paper. OS **`5.7.121` (scarthgap)**,
@@ -167,7 +167,7 @@ older "Synadia Agents" service name was **v0.1** and is wrong for v0.3.
   `AGENT_CHAT_SMOKE` path; asserts the streamed reply. Needs `nats-server` + nats-py.
 
 ## On-device run sequence
-`systemctl stop xochitl` → `QT_QUICK_BACKEND=epaper ./hello_remarkable -platform epaper`
+`systemctl stop xochitl` → `QT_QUICK_BACKEND=epaper ./rm-agents -platform epaper`
 → **tap Exit** → `systemctl start xochitl`. Ctrl-C usually isn't delivered over
 ssh-without-PTY; the app also quits on SIGINT/SIGTERM/SIGHUP. Always restore xochitl
 (a `trap ... EXIT` one-liner is in `deploy.sh` / README §4).
@@ -175,7 +175,7 @@ ssh-without-PTY; the app also quits on SIGINT/SIGTERM/SIGHUP. Always restore xoc
   keyboard yet (M3), so the server is written to `~/agents.json` and read on launch;
   the roster then fills via discovery.
 - Non-disruptive check (no xochitl stop): `AGENT_CHAT_DISCOVER=1
-  AGENT_CHAT_SMOKE_HOST=<host> QT_QPA_PLATFORM=offscreen ./hello_remarkable`.
+  AGENT_CHAT_SMOKE_HOST=<host> QT_QPA_PLATFORM=offscreen ./rm-agents`.
 
 ## Dev loop
 inspect device → propose architecture (wait for OK) → implement a milestone →
