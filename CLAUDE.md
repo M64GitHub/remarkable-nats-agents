@@ -29,6 +29,9 @@ See docs/IMPLEMENTATION-NOTES.md.
 
 Not done yet: mid-stream queries (§7), `audit.agents.*` tail.
 
+**Next up: v2 — the in-app `.rm` renderer** (`docs/RM-PARSER-RENDERER.md`). A
+self-contained, start-from-nothing prompt for that work is in **`HANDOFF-PROMPT.md`**.
+
 ## Machines & topology
 - **Build + dev host:** the Linux laptop (x86_64, Ubuntu 24.04). The reMarkable
   SDK runs natively here — no Docker/emulation. All work happens on this machine.
