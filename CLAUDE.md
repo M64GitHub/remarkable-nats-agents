@@ -29,8 +29,17 @@ See docs/IMPLEMENTATION-NOTES.md.
 
 Not done yet: mid-stream queries (§7), `audit.agents.*` tail.
 
-**Next up: v2 — the in-app `.rm` renderer** (`docs/RM-PARSER-RENDERER.md`). A
-self-contained, start-from-nothing prompt for that work is in **`HANDOFF-PROMPT.md`**.
+- **V2 M1 (renderer core)** — in-app `.rm` v6 parser + raster renderer (`src/rm/`):
+  `RmTaggedReader` + `RmParser` (SceneLineItem strokes) + `RmRenderer`→PNG. Parses the
+  fixture **byte-exact** (663 strokes / 10,268 points) and renders an **upright,
+  full-res** PNG matching the device thumbnail (colours incl. cyan/magenta). Headless via
+  `AGENT_CHAT_TEST=render` (+ `AGENT_CHAT_RENDER_IN/_OUT/_ROT/_SCALE/_PEN`). Verified on
+  desktop; **not yet device-tested, not yet wired into the attach flow.** Fixed a real
+  spec bug along the way — the `TagType` nibbles in `docs/RM-PARSER-RENDERER.md` were
+  inverted; corrected from rmscene. See that doc for calibration findings.
+
+**Next up: v2 M2+ — PDF/multi-page, then wire `.rm`→PNG into `NoteStore`/the attach flow**
+(render any page, incl. thumbnail-less ones). Plan + format spec: `docs/RM-PARSER-RENDERER.md`.
 
 ## Machines & topology
 - **Build + dev host:** the Linux laptop (x86_64, Ubuntu 24.04). The reMarkable
@@ -146,6 +155,11 @@ older "Synadia Agents" service name was **v0.1** and is wrong for v0.3.
 - `src/agents/{AgentModel,ChatModel}.{h,cpp}` — roster + conversation list models.
 - `src/notes/NoteStore.{h,cpp}` — lists notebooks (renderable pages) from the xochitl
   store for the attachment browser. Root: `$AGENT_CHAT_XOCHITL` or the device default.
+- `src/rm/*` (v2) — in-app `.rm` v6 renderer. `RmTaggedReader` (byte cursor: varuint,
+  tagged values, subblocks), `RmTypes.h` (Block/Pen/PenColor enums + Point/Stroke/Layer/
+  Page), `RmParser` (header + block loop → strokes; bounds each block body in its own
+  reader so a bad item can't poison the loop), `RmRenderer` (`Page`→`QImage` PNG via
+  QtGui, auto-fit bbox). Pure parsing depends only on `QByteArray` → headless-testable.
 - `src/agents/AppController.{h,cpp}` — QML-facing facade (`App` context property);
   loads static roster (`$AGENT_CHAT_CONFIG` / `./agents.json` / bundled / built-in).
 - `src/qml/*` — hand-rolled flat UI (roster grid of `AgentDelegate` cards, chat
@@ -155,7 +169,9 @@ older "Synadia Agents" service name was **v0.1** and is wrong for v0.3.
   AA). Headless verification (no QML/display): `AGENT_CHAT_SMOKE=<text>` = prompt
   round-trip; `AGENT_CHAT_DISCOVER=1` = $SRV discovery + heartbeat probe;
   `AGENT_CHAT_TEST=chat` = ChatModel self-test; `AGENT_CHAT_TEST=notes` = NoteStore
-  self-test (`$AGENT_CHAT_XOCHITL`). Add `AGENT_CHAT_TLS=1 AGENT_CHAT_CREDS=<.creds>`
+  self-test (`$AGENT_CHAT_XOCHITL`); `AGENT_CHAT_TEST=render` = parse a `.rm` + save a
+  PNG (`AGENT_CHAT_RENDER_IN=<file.rm>`, `_OUT`, `_ROT`, `_SCALE`, `_PEN`) — prints
+  byte-exactness + stroke/point/bbox stats. Add `AGENT_CHAT_TLS=1 AGENT_CHAT_CREDS=<.creds>`
   + `AGENT_CHAT_SMOKE_HOST=connect.ngs.global` to target NGS; `AGENT_CHAT_ATTACH=p1,p2`
   to attach files in the smoke prompt.
 

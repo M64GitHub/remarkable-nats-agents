@@ -16,6 +16,8 @@
 #include "agents/AgentProtocol.h"
 #include "agents/AppController.h"
 #include "notes/NoteStore.h"
+#include "rm/RmParser.h"
+#include "rm/RmRenderer.h"
 
 namespace {
 
@@ -209,6 +211,83 @@ int runNotesTest()
     return ok ? 0 : 1;
 }
 
+// Headless self-test for the in-app .rm renderer (AGENT_CHAT_TEST=render): parse a
+// `.rm` file, print stats (blocks/strokes/points/bbox/tool+color histograms, and
+// the leftover-byte count that proves byte-exact framing), and save a full-res PNG
+// for thumbnail diffing. Knobs via env:
+//   AGENT_CHAT_RENDER_IN   path to the .rm file (required)
+//   AGENT_CHAT_RENDER_OUT  output PNG (default /tmp/rm-render.png)
+//   AGENT_CHAT_RENDER_ROT  post-raster rotation degrees (default 0; landscape = 90)
+//   AGENT_CHAT_RENDER_SCALE / _PEN  geometry calibration (default 1.0 / 1.0)
+int runRenderTest()
+{
+    QTextStream out(stdout);
+    QString in = qEnvironmentVariable("AGENT_CHAT_RENDER_IN");
+    if (in.startsWith(QStringLiteral("~/")))
+        in = QDir::homePath() + in.mid(1);
+    if (in.isEmpty()) {
+        out << "set AGENT_CHAT_RENDER_IN=<file.rm>\nRESULT: FAIL\n";
+        return 1;
+    }
+    QFile f(in);
+    if (!f.open(QIODevice::ReadOnly)) {
+        out << "cannot open " << in << "\nRESULT: FAIL\n";
+        return 1;
+    }
+    const QByteArray data = f.readAll();
+
+    rm::Page page;
+    rm::ParseStats st;
+    QString err;
+    const bool ok = rm::RmParser::parse(data, page, &st, &err);
+
+    out << "file: " << in << "  (" << data.size() << " bytes)\n";
+    out << "header: " << (st.headerOk ? "ok" : "BAD")
+        << "  version=" << st.version << "\n";
+    out << "blocks: " << st.blocks
+        << "  sceneLineItems: " << st.sceneLineItems
+        << "  (value-less: " << st.valuelessItems << ")\n";
+    out << "strokes: " << st.strokes << "  points: " << st.points << "\n";
+    out << "leftover bytes: " << qulonglong(st.leftover)
+        << (st.leftover == 0 ? "  (byte-exact)" : "  (NOT byte-exact)") << "\n";
+    {
+        QStringList ts;
+        for (auto it = st.tools.constBegin(); it != st.tools.constEnd(); ++it)
+            ts << QStringLiteral("tool %1×%2").arg(it.key()).arg(it.value());
+        QStringList cs;
+        for (auto it = st.colors.constBegin(); it != st.colors.constEnd(); ++it)
+            cs << QStringLiteral("color %1×%2").arg(it.key()).arg(it.value());
+        out << "tools: " << ts.join(QStringLiteral(", ")) << "\n";
+        out << "colors: " << cs.join(QStringLiteral(", ")) << "\n";
+    }
+    if (page.hasContent)
+        out << "bbox: x[" << page.minX << ", " << page.maxX << "]  y["
+            << page.minY << ", " << page.maxY << "]  ("
+            << (page.maxX - page.minX) << " × " << (page.maxY - page.minY) << ")\n";
+    if (!ok)
+        out << "parse error: " << err << "\n";
+
+    rm::RenderOptions opt;
+    opt.rotation = qEnvironmentVariable("AGENT_CHAT_RENDER_ROT", "0").toInt();
+    opt.scale = qEnvironmentVariable("AGENT_CHAT_RENDER_SCALE", "1.0").toDouble();
+    opt.penScale = qEnvironmentVariable("AGENT_CHAT_RENDER_PEN", "1.0").toDouble();
+    const QString outPng = qEnvironmentVariable("AGENT_CHAT_RENDER_OUT",
+                                                "/tmp/rm-render.png");
+    bool saved = false;
+    if (page.hasContent) {
+        const QImage img = rm::RmRenderer::renderToImage(page, opt);
+        saved = img.save(outPng, "PNG");
+        out << "rendered: " << img.width() << "×" << img.height()
+            << " px -> " << outPng << (saved ? "  [ok]" : "  [SAVE FAILED]") << "\n";
+    } else {
+        out << "no strokes to render\n";
+    }
+
+    const bool pass = ok && st.headerOk && (!page.hasContent || saved);
+    out << (pass ? "RESULT: PASS\n" : "RESULT: FAIL\n");
+    return pass ? 0 : 1;
+}
+
 }  // namespace
 
 // We own the object graph here (transport -> protocol -> controller) and hand the
@@ -239,6 +318,8 @@ int main(int argc, char *argv[])
         return runChatTest();
     if (qEnvironmentVariable("AGENT_CHAT_TEST") == QLatin1String("notes"))
         return runNotesTest();
+    if (qEnvironmentVariable("AGENT_CHAT_TEST") == QLatin1String("render"))
+        return runRenderTest();
 
     NatsClient nats;
     AgentProtocol protocol(&nats);

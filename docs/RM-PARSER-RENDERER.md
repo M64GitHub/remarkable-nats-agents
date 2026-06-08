@@ -50,11 +50,19 @@ Every field is prefixed by a **tag** read as a `varuint`:
 
 | tag_type | meaning | payload |
 |----------|---------|---------|
-| `0x0` | ID (CrdtId) | `uint8` author + `varuint` timestamp |
-| `0x1` | Length4 / **subblock** | `uint32` byte-length, then nested tagged data |
-| `0x4` | Byte8 | 8-byte `double` |
-| `0xC` | Byte1 | 1-byte (`bool`) |
-| `0xF` | Byte4 | 4-byte (`int`/`float32`) |
+| `0xF` | ID (CrdtId) | `uint8` author + `varuint` timestamp |
+| `0xC` | Length4 / **subblock** | `uint32` byte-length, then nested tagged data |
+| `0x8` | Byte8 | 8-byte `double` |
+| `0x4` | Byte4 | 4-byte (`int`/`float32`) |
+| `0x1` | Byte1 | 1-byte (`bool`) |
+
+> **Correction (v2 impl, 2026-06-09):** an earlier draft of this table had the
+> tag_type nibbles inverted (`ID=0x0`, `Length4=0x1`, …). The values above are the
+> authoritative ones from rmscene's `TagType` enum (`tagged_block_common.py`) and
+> are what the byte-validated fixture actually decodes with — e.g. the optional Line
+> value subblock(6) appears on the wire as `0x6C = (6<<4)|Length4`. The wrong nibbles
+> made every `SceneLineItem` parse as value-less (0 strokes); the corrected ones
+> reproduce the exact expected counts (663 strokes / 10,268 points).
 
 Primitive readers needed: `varuint`, `uint8/16/32`, `float32`, `float64`, `bool`,
 `crdt_id`, plus tagged wrappers `read_id/int/float/double/string/subblock(expected_tag)`.
@@ -216,6 +224,28 @@ hardcode). Plan: implement `map()` with a configurable page size + x/y offset + 
 then **calibrate by rendering a known note and diffing against its thumbnail** until they
 line up. Record the confirmed Paper Pro constants here once measured.
 
+**Calibration results (v2 M1, 2026-06-09 — verified against the AI Workslop note):**
+`RmRenderer` (src/rm) **auto-fits to the inked bounding box** (+`margin`, default 40
+rm-units) at `scale=1` → a `1913×2497` px PNG for the handwriting page, far sharper
+than the `512×384` thumbnail. Key findings:
+- **No rotation needed.** Strokes are stored **already upright** (reading orientation).
+  Rendering at `rotation=0` reproduces the thumbnail's content exactly (title top-left,
+  two columns, cyan/magenta ink). `orientation: landscape` in `<uuid>.content` governs
+  only the **page viewport shape**, not stroke rotation — so it is *not* applied as an
+  image rotation. (Re-verify on a **portrait** note before assuming this holds for all.)
+- **The thumbnail is the page viewport, not the full content.** It crops at the page
+  fold; our auto-fit captures everything that scrolls below it (the last to-do lines are
+  cut off in the thumbnail but fully rendered by us). This is a feature: the agent sees
+  *all* the writing.
+- **Pen width:** per-segment `point.width × thickness_scale × scale × penScale`
+  (`point.width = raw_u16/4`). With `thickness_scale=2.0` (Fineliner-v2 "medium") the
+  default knobs give natural, legible strokes; expose `penScale` for tuning.
+- **Colours:** `color_id 0/1/11/12` → black/gray/**cyan**/**magenta** (the "unmapped"
+  11/12 are CYAN/MAGENTA in rmscene's `PenColor`), confirmed against the thumbnail's ink.
+- Whether to also offer a **page-framed** render (fixed page W/H + grid, matching the
+  thumbnail's margins) is deferred — auto-fit is the better vision input and is what the
+  attach flow will use. Freeze Paper Pro page W/H here if/when page-framing is added.
+
 ## Typed text — the easy lane
 `RootText` (`0x07`) / `SceneTextItem` (`0x06`) carry typed text (CRDT sequences). For
 typed pages, extract the string and attach **Markdown/plain text** — no image, no OCR,
@@ -225,7 +255,10 @@ cheapest possible agent input. (Mirrors `rmc`'s "simple Markdown" output.)
 1. **v1 — thumbnails (no parser):** pick note → page range → attach existing
    `<UUID>.thumbnails/<page>.png`. Works today; low-res. (See READING-NOTES.md.)
 2. **v2 — C++ raster renderer:** `RmTaggedReader` + `RmParser` (SceneLineItem only) +
-   `RmRenderer`→PNG at full res. Calibrate geometry vs thumbnail.
+   `RmRenderer`→PNG at full res. Calibrate geometry vs thumbnail. ✅ **DONE (2026-06-09)** —
+   `src/rm/`, byte-exact parse of the fixture, upright full-res PNG matching the
+   thumbnail. Headless via `AGENT_CHAT_TEST=render` (see below). Not yet wired into the
+   attach flow (that's the next step).
 3. **v3 — PDF + multi-page:** `QPdfWriter`, page-range → one PDF; pen widths/colors/layers.
 4. **v4 — typed text extraction:** RootText → Markdown for typed pages.
 5. polish: pressure→opacity, highlighter blend, eraser handling, Paper Pro palette.
@@ -235,10 +268,14 @@ cheapest possible agent input. (Mirrors `rmc`'s "simple Markdown" output.)
 - [x] ~~Confirm block framing & SceneLineItem structure~~ → **verified byte-for-byte** (incl.
       SceneItem envelope + optional value subblock — spec updated).
 - [ ] `QtSvg`/`QSvgGenerator` presence (sysroot + device) — only if we want SVG.
-- [ ] `QPdfWriter` link/run check on-device (expected ✅ via QtGui — confirm).
-- [ ] Full Paper Pro page extents + exact origin/scale — partial: coords are **center-origin**,
-      `X∈[−890,942] Y∈[83,2500]` on one note; sample more notes to freeze page W/H.
-- [ ] Copy authoritative Pen/PenColor integer tables from `rmscene` (saw color ids 11/12 unmapped).
+- [ ] `QPdfWriter` link/run check on-device (Qt6::Gui now linked; PDF is M3 — confirm then).
+- [ ] Full Paper Pro page extents + exact origin/scale — only needed if page-framing is
+      added; auto-fit (M1) sidesteps it. coords are **center-origin**, `X∈[−890,942]
+      Y∈[83,2500]` on the one note.
+- [x] ~~Copy authoritative Pen/PenColor integer tables from `rmscene`~~ → done in
+      `src/rm/RmTypes.h`; ids 11/12 = **CYAN/MAGENTA**.
+- [ ] Confirm `rotation=0` (no stroke rotation) also holds for a **portrait**-orientation
+      note — M1 only verified a landscape note.
 
 ## Privilege note (unchanged)
 Rendering + attaching means the app reads the user's library and ships page images

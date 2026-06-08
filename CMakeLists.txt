@@ -10,7 +10,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # cross build (Qt6 from the reMarkable SDK sysroot once its env file is sourced).
 # QtNetwork backs the NATS-over-QTcpSocket transport; QtQuickControls2 is NOT
 # used — the UI is hand-rolled flat QtQuick for full control over e-paper render.
-find_package(Qt6 REQUIRED COMPONENTS Quick Network)
+# Gui (QImage/QPainter/QPdfWriter) backs the in-app `.rm` renderer (src/rm). It is
+# transitive via Quick, but listed explicitly since we use it directly. Present in
+# both the desktop Qt and the SDK sysroot (verified).
+find_package(Qt6 REQUIRED COMPONENTS Quick Gui Network)
 # OpenSSL libcrypto: Ed25519 (EVP_PKEY_ED25519) for NKEY/JWT signing on NGS. Present
 # in the SDK sysroot, the device, and the host. TLS itself is handled by Qt's
 # OpenSSL plugin at runtime, so we only need the Crypto component here.
@@ -26,7 +29,10 @@ qt_add_executable(rm_agents
     src/agents/AgentModel.cpp
     src/agents/ChatModel.cpp
     src/agents/AppController.cpp
-    src/notes/NoteStore.cpp)
+    src/notes/NoteStore.cpp
+    src/rm/RmTaggedReader.cpp     # in-app .rm v6 parser + renderer (v2)
+    src/rm/RmParser.cpp
+    src/rm/RmRenderer.cpp)
 
 # A `pragma Singleton` QML file must also be flagged here, or qt_add_qml_module
 # registers it as a plain type and `Theme.<prop>` resolves to undefined at runtime.
@@ -52,4 +58,4 @@ qt_add_qml_module(rm_agents
 set_target_properties(rm_agents PROPERTIES OUTPUT_NAME rm-agents)
 
 target_include_directories(rm_agents PRIVATE src)
-target_link_libraries(rm_agents PRIVATE Qt6::Quick Qt6::Network OpenSSL::Crypto)
+target_link_libraries(rm_agents PRIVATE Qt6::Quick Qt6::Gui Qt6::Network OpenSSL::Crypto)
