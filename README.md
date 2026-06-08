@@ -1,8 +1,14 @@
 # remarkable agent chat
 
 A multi-agent chat client for the **reMarkable Paper Pro** (`ferrari`, aarch64),
-talking to agents over the **Synadia Agents Protocol on NATS** — an agent roster
-plus a chat pane. Starts as a minimal Qt Quick app and grows from there.
+talking to agents over the **Synadia Agent Protocol v0.3 on NATS** — an agent roster
+plus a chat pane, drawn directly to e-paper.
+
+**What works today** (verified on the device): a roster that auto-discovers agents
+via `$SRV` with live heartbeat status, a chat pane that streams replies, an
+on-screen keyboard, per-agent history, and an in-app Exit. Pure Qt Quick, hand-rolled
+flat e-paper UI. See `IMPLEMENTATION-NOTES.md` for design + gotchas, `CLAUDE.md` for
+status and the known typing-latency issue.
 
 Development happens entirely on the **Tux64** (x86_64 Ubuntu), which is the SDK's
 native host. The device is connected over SSH for inspection and deployment.

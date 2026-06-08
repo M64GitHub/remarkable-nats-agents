@@ -22,6 +22,12 @@ The QML layer never touches NATS. Everything above the wire depends only on
 or UI. `main.cpp` owns the object graph and injects `App` as a single context
 property.
 
+`ChatModel` is **multi-conversation** — one message list per agent prompt subject —
+so switching agents preserves history (capped at 20 messages each). Streaming
+replies route by request id to the right conversation even when it isn't on screen.
+`AgentModel` is the roster (a `GridView` of cards); liveness comes from heartbeats
+with a stale sweep.
+
 ## Qt / build gotchas (each cost real time)
 
 - **A `pragma Singleton` QML file must ALSO be flagged in CMake.** `pragma
@@ -37,6 +43,12 @@ property.
   produced *undefined reference to vtable / staticMetaObject / signals* at link
   time until it was listed in `qt_add_executable(...)`. AUTOMOC keys off
   same-named `.cpp` files; a header with no `.cpp` is invisible unless listed.
+
+- **Don't shadow a FINAL property of `Item`.** `Keyboard.qml` declared `property
+  string layer` for its letter/symbol state and failed at load with *Cannot override
+  FINAL property* — `Item` already has the `layer` (effects) group. Renamed to
+  `keyLayer`. Same trap exists for `state`, `data`, `children`, `anchors`, `opacity`,
+  etc. AOT-compiles fine; fails only at instantiation (caught by the offscreen run).
 
 - **The desktop preview builds the real binary** — it is not `qml Main.qml`. Once
   the app registers C++ types and bundles QML as a module, the bare `qml` runtime
@@ -56,9 +68,13 @@ This repo is often built on a host with no display. Two checks cover most of it:
   couple of seconds, with stderr watched for QML warnings — this is what caught the
   singleton bug. AOT compilation alone did **not** catch it (it's a runtime
   resolution failure).
-- **`AGENT_CHAT_SMOKE=<text>`** runs a headless prompt round-trip with no QML at
-  all (see `main.cpp`), exercising the full transport + protocol stack. Driven by
-  `scripts/smoke-test.py`.
+- **Env-gated headless modes in `main.cpp`** (no QML/display, good for CI):
+  - `AGENT_CHAT_SMOKE=<text>` — full prompt round-trip over the transport+protocol
+    stack (driven by `scripts/smoke-test.py`).
+  - `AGENT_CHAT_DISCOVER=1` — `$SRV` discovery + heartbeat probe; prints the roster
+    (target a server with `AGENT_CHAT_SMOKE_HOST`).
+  - `AGENT_CHAT_TEST=chat` — self-test of the multi-conversation `ChatModel`
+    (per-agent history retention + off-screen streaming routing).
 
 ## NATS wire — what the client must get right (v0.3)
 
@@ -84,8 +100,9 @@ This repo is often built on a host with no display. Two checks cover most of it:
   the §6 chunk protocol. Not a real agent: no `$SRV` registration, no heartbeat.
 - The **real** counterparty is the Synadia SDK echo example
   (`agent-sdk/python/examples/01-echo.py`), which registers on `$SRV` and emits
-  heartbeats — use it once M2 (discovery) lands. Run with
-  `--owner local --session-name test` to match the bundled roster entry.
+  heartbeats — used to verify M2 discovery + liveness. Run with
+  `--owner local --session-name test` to match the bundled roster entry. The `pi`
+  example is a real LLM agent — good for exercising many-chunk token streaming.
 
 ## Test-environment quirk (this sandbox only)
 
@@ -111,19 +128,24 @@ normal developer shell — only the agent harness.
   SIGINT to the app. So: an in-app **Exit** button (`Qt.quit()`), plus a SIGINT/
   SIGTERM/SIGHUP handler (flag + 200ms poll, the only async-signal-safe way to reach
   `app.quit()`) so closing the session also exits cleanly.
-- **Refresh / typing latency.** The panel is colour (ACeP); full grayscale refresh
-  is slow. `libqsgepaper` drives `EPFrameBuffer::sendUpdate(rect, WaveformMode,
-  UpdateMode)` automatically and picks the waveform from content — but there is **no
-  public header in the SDK**, so don't reverse-engineer it. Instead bias the backend
-  toward its fast monochrome waveform from the app:
-  - `app.styleHints()->setCursorFlashTime(0)` — a blinking cursor repaints the field
-    ~2×/sec; kill it.
-  - `QFont::NoAntialias` on the app font — anti-aliased glyphs have gray edges that
-    force the slow grayscale waveform; 1-bit glyphs stay 2-colour → fast mono path.
-  - Keep content pure black/white in hot paths; greys (e.g. `Theme.mute` subtitles)
-    are fine off the typing path. Press-invert on keys only dirties that key.
-  - Input is decoupled from display: keystrokes are never dropped even when the
-    repaint lags.
+- **Refresh / typing latency — measured, still slow (open).** The panel is colour
+  (ACeP) and the refresh itself is the bottleneck. We tried two app-level mitigations
+  expected to bias the backend toward a fast monochrome waveform:
+  - `app.styleHints()->setCursorFlashTime(0)` — steady (non-blinking) cursor.
+  - `QFont::NoAntialias` — 1-bit glyphs (no grey edges to trip the grayscale path).
+
+  **Result on the device: neither measurably improved typing latency.** So the cost
+  is in `libqsgepaper`'s refresh (likely a fixed full/grayscale update per change),
+  not in content classification. We kept both anyway — the steady cursor avoids
+  pointless repaints and the crisp 1-bit text is preferred — but they are **not** the
+  fix. Don't re-try them expecting a speedup.
+  - The only real lever is `EPFrameBuffer::sendUpdate(rect, WaveformMode, UpdateMode)`
+    in `libqsgepaper` (fast A2/DU waveforms + partial updates). There is **no public
+    header in the SDK**, so using it means reverse-engineering the class (community
+    `epframebuffer.h` exists). Deferred unless the latency is judged worth that
+    fragility on the user's device.
+  - Silver lining (not the bottleneck): input is decoupled from display, so
+    keystrokes are never dropped even when the repaint lags.
 - **Deploy while running:** scp over the live binary fails with ETXTBSY; `deploy.sh`
   copies to a temp name and `mv -f`s over it (rename swaps the dir entry; the running
   process keeps its inode; next launch gets the new build).

@@ -3,8 +3,21 @@
 ## What this is
 A multi-agent chat client for the **reMarkable Paper Pro**, talking to agents over
 the **Synadia Agents Protocol on NATS**. UI = an agent roster + a chat pane (the
-e-paper equivalent of our web UI). Starts from a minimal Qt Quick scaffold and
-grows into the real app.
+e-paper equivalent of our web UI).
+
+## Status (checkpoint)
+Working and verified on the real device:
+- **M1** — NATS transport + roster + chat + streaming prompt.
+- **M2** — `$SRV` discovery + heartbeat liveness (dynamic roster).
+- **M3** — on-screen keyboard (`src/qml/Keyboard.qml`) + fills the 1620×2160 panel.
+- UI polish — 3-across roster cards, chat bubbles + timestamps, in-app **Exit** button.
+
+Known issue — **typing refresh latency**: inherent to the panel. `setCursorFlashTime(0)`
++ `QFont::NoAntialias` did **not** improve it; the real lever (`EPFrameBuffer::sendUpdate`
+waveform/partial control in `libqsgepaper`) has no public SDK header, so it's deferred.
+See IMPLEMENTATION-NOTES.md.
+
+Not done yet: TLS/NGS creds (M5), mid-stream queries (§7), `audit.agents.*` tail.
 
 ## Machines & topology
 - **Build + dev host:** the Tux64 laptop (x86_64, Ubuntu 24.04). The reMarkable
@@ -44,7 +57,8 @@ If a module is in one but not the other, that's a bug waiting to happen.
 - `epaper` platform plugin (`libepaper.so`) and `libqsgepaper.so` both present —
   **no copy needed** (unlike the older 3.17 note).
 - **No virtual keyboard** (no `platforminputcontexts`, no VirtualKeyboard module) —
-  so on-device typing needs our own on-screen QML keyboard (M3) or an external kbd.
+  on-device typing → implemented as our own `src/qml/Keyboard.qml` (M3); an external
+  BT/USB kbd also works.
 - Input: pen (Elan marker), touch (Elan touch), power key. No HW keyboard attached.
 - Fonts: Noto Sans / Noto Sans UI / Noto Serif / **Noto Mono** / EB Garamond.
 - Screen: the DRM panel reported a non-physical `405×1084` mode (looks like a
@@ -64,8 +78,8 @@ If a module is in one but not the other, that's a bug waiting to happen.
   (black on white); large fonts; large touch targets; discrete state changes. The
   desktop preview is a logic+layout check only, never a fidelity check.
 - **Text input:** the probe confirmed **no system/virtual keyboard** on the device.
-  Plan: a self-contained on-screen QML keyboard (M3), with the hardware-keyboard
-  path kept working for desktop/BT (M1 uses it — `TextEdit`, Enter to send).
+  Implemented (M3): a self-contained on-screen QML keyboard (`src/qml/Keyboard.qml`);
+  the hardware-keyboard path stays working for desktop/BT (`TextEdit`, Enter to send).
 - **NATS transport:** minimal NATS client in C++ over `QTcpSocket` (QtNetwork —
   present on host and device), exposed to QML behind the `INatsConnection` interface
   so it can later be swapped for `nats.zig`. It speaks the text protocol incl.
@@ -106,7 +120,7 @@ older "Synadia Agents" service name was **v0.1** and is wrong for v0.3.
   `/home/m64/space/synadia-ai/synadia-agents/examples/agent-web-ui` — but it uses
   the JS SDK, which hides the wire; the spec above is the source of truth.
 
-## Code layout (M1)
+## Code layout
 - `src/nats/INatsConnection.h` — transport interface (the swap seam for nats.zig).
 - `src/nats/NatsClient.{h,cpp}` — NATS-over-QTcpSocket: handshake, PING/PONG,
   PUB/SUB/UNSUB, MSG + **HMSG** parsing, `_INBOX` factory.
@@ -116,11 +130,13 @@ older "Synadia Agents" service name was **v0.1** and is wrong for v0.3.
 - `src/agents/{AgentModel,ChatModel}.{h,cpp}` — roster + conversation list models.
 - `src/agents/AppController.{h,cpp}` — QML-facing facade (`App` context property);
   loads static roster (`$AGENT_CHAT_CONFIG` / `./agents.json` / bundled / built-in).
-- `src/qml/*` — hand-rolled flat UI; `Theme.qml` is a **singleton** (must be flagged
-  `QT_QML_SINGLETON_TYPE` in CMake or `Theme.*` resolves to undefined at runtime).
-- `src/main.cpp` — wires it together. Headless verification (no QML/display):
-  `AGENT_CHAT_SMOKE=<text>` runs a prompt round-trip; `AGENT_CHAT_DISCOVER=1`
-  runs $SRV discovery + a heartbeat probe and prints the roster.
+- `src/qml/*` — hand-rolled flat UI (roster grid of `AgentDelegate` cards, chat
+  `MessageDelegate` bubbles, on-screen `Keyboard.qml`). `Theme.qml` is a **singleton**
+  (must be flagged `QT_QML_SINGLETON_TYPE` in CMake or `Theme.*` resolves to undefined).
+- `src/main.cpp` — wires it together; sets e-paper hints (no cursor blink, no text
+  AA). Headless verification (no QML/display): `AGENT_CHAT_SMOKE=<text>` = prompt
+  round-trip; `AGENT_CHAT_DISCOVER=1` = $SRV discovery + heartbeat probe;
+  `AGENT_CHAT_TEST=chat` = ChatModel multi-conversation self-test.
 
 ## Scripts
 - `scripts/inspect-device.sh` — read-only capability probe of the connected device.
@@ -134,8 +150,9 @@ older "Synadia Agents" service name was **v0.1** and is wrong for v0.3.
 
 ## On-device run sequence
 `systemctl stop xochitl` → `QT_QUICK_BACKEND=epaper ./hello_remarkable -platform epaper`
-→ Ctrl-C → `systemctl start xochitl`. Always restore xochitl (a `trap ... EXIT`
-one-liner is in `deploy.sh` / README §4).
+→ **tap Exit** → `systemctl start xochitl`. Ctrl-C usually isn't delivered over
+ssh-without-PTY; the app also quits on SIGINT/SIGTERM/SIGHUP. Always restore xochitl
+(a `trap ... EXIT` one-liner is in `deploy.sh` / README §4).
 - Deploy with `RM_SERVER=nats://<host>:4222 scripts/deploy.sh` — the device has no
   keyboard yet (M3), so the server is written to `~/agents.json` and read on launch;
   the roster then fills via discovery.
