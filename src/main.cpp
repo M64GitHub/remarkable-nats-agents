@@ -97,6 +97,45 @@ int runDiscover(QGuiApplication &app)
     return app.exec();
 }
 
+// Headless self-test for the multi-conversation ChatModel (AGENT_CHAT_TEST=chat):
+// verifies per-agent history is retained across switches and that a streaming
+// reply routes to the right conversation. No NATS, no QML.
+int runChatTest()
+{
+    QTextStream out(stdout);
+    ChatModel m;
+    bool ok = true;
+    auto check = [&](const char *name, bool cond) {
+        out << (cond ? "  ok  " : " FAIL ") << name << "\n";
+        ok = ok && cond;
+    };
+
+    m.setConversation("agentA");
+    m.appendUser("hello");
+    m.appendAgentPending("r1");
+    m.appendDelta("r1", "hi ");
+    m.appendDelta("r1", "there");
+    m.setDone("r1");
+    check("A has 2 rows", m.rowCount() == 2);
+    check("A agent text concatenated",
+          m.data(m.index(1), ChatModel::TextRole).toString() == "hi there");
+
+    m.setConversation("agentB");
+    check("B starts empty", m.rowCount() == 0);
+    m.appendUser("yo");
+    // A reply for A arrives while B is on screen — must update A, not B.
+    m.appendDelta("r1", "!");
+    check("B still 1 row after A reply", m.rowCount() == 1);
+
+    m.setConversation("agentA");
+    check("A preserved on return (2 rows)", m.rowCount() == 2);
+    check("A reply updated off-screen",
+          m.data(m.index(1), ChatModel::TextRole).toString() == "hi there!");
+
+    out << (ok ? "RESULT: PASS\n" : "RESULT: FAIL\n");
+    return ok ? 0 : 1;
+}
+
 }  // namespace
 
 // We own the object graph here (transport -> protocol -> controller) and hand the
@@ -114,6 +153,8 @@ int main(int argc, char *argv[])
         return runSmoke(app, smoke);
     if (!qEnvironmentVariable("AGENT_CHAT_DISCOVER").isEmpty())
         return runDiscover(app);
+    if (qEnvironmentVariable("AGENT_CHAT_TEST") == QLatin1String("chat"))
+        return runChatTest();
 
     NatsClient nats;
     AgentProtocol protocol(&nats);

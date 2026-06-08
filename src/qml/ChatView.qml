@@ -62,7 +62,7 @@ Item {
             id: fieldBox
             anchors.left: parent.left
             anchors.leftMargin: Theme.pad
-            anchors.right: sendButton.left
+            anchors.right: clearButton.left
             anchors.rightMargin: Theme.gap
             anchors.verticalCenter: parent.verticalCenter
             height: Math.max(Theme.touch, field.implicitHeight + Theme.gap)
@@ -111,13 +111,13 @@ Item {
         }
 
         FlatButton {
-            id: sendButton
+            id: clearButton
             anchors.right: parent.right
             anchors.rightMargin: Theme.pad
             anchors.verticalCenter: parent.verticalCenter
-            text: "Send"
-            enabled: field.text.trim().length > 0
-            onClicked: root.send()
+            text: "Clear"
+            enabled: field.text.length > 0
+            onClicked: field.clear()
         }
     }
 

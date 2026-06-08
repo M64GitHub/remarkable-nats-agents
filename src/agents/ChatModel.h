@@ -1,14 +1,18 @@
 #pragma once
 
 #include <QAbstractListModel>
+#include <QHash>
 #include <QString>
 #include <QVector>
 
-// The active conversation. User messages and agent replies are appended in
-// order. An agent reply starts as a pending row tagged with the protocol request
-// id; streaming `response` chunks append to its text, and the terminator (or an
-// error) flips its status. The view renders one conversation at a time; M1 keeps
-// a single conversation that resets when a different agent is selected.
+// Per-agent conversations. The model exposes ONE conversation at a time (the
+// selected agent, keyed by its prompt subject), but retains every conversation
+// for the session — so switching agents and coming back preserves history. Each
+// conversation is capped at the most recent `m_cap` messages.
+//
+// Streaming replies are routed by request id to the right conversation even if
+// it isn't the one on screen, so a reply that lands after you've switched agents
+// still updates its own history.
 class ChatModel : public QAbstractListModel
 {
     Q_OBJECT
@@ -19,7 +23,7 @@ public:
     enum Roles {
         TextRole = Qt::UserRole + 1,
         IsUserRole,
-        StatusRole,   // one of "pending" | "streaming" | "done" | "error"
+        StatusRole,   // "pending" | "streaming" | "done" | "error"
     };
 
     explicit ChatModel(QObject *parent = nullptr);
@@ -28,11 +32,12 @@ public:
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    void clear();
+    // Show the conversation for `key` (an agent's prompt subject). Retained
+    // history for that key reappears; an unseen key starts empty.
+    void setConversation(const QString &key);
+
     void appendUser(const QString &text);
-    // Append an empty, pending agent row tagged with `requestId`.
     void appendAgentPending(const QString &requestId);
-    // Append `delta` to the agent row for `requestId` and mark it streaming.
     void appendDelta(const QString &requestId, const QString &delta);
     void setDone(const QString &requestId);
     void setError(const QString &requestId, const QString &message);
@@ -44,8 +49,14 @@ private:
         Status status = Done;
         QString requestId;   // agent rows only
     };
-    int rowForRequest(const QString &requestId) const;
-    void emitRowChanged(int row);
 
-    QVector<Message> m_messages;
+    int rowForRequest(const QString &key, const QString &requestId) const;
+    void appendTo(const QString &key, const Message &m);
+    void trim(const QString &key);
+    void touch(const QString &key, int row);   // dataChanged, only if key is visible
+
+    QHash<QString, QVector<Message>> m_convs;   // subject -> messages
+    QHash<QString, QString> m_reqConv;          // requestId -> subject
+    QString m_curKey;                            // visible conversation
+    int m_cap = 20;                              // max retained/shown per conversation
 };

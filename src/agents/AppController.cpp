@@ -292,7 +292,9 @@ void AppController::selectAgent(int row)
     m_selectedRow = row;
     m_selectedTitle = e->name;
     m_selectedSubject = e->subject;
-    m_chat.clear();
+    // Show this agent's retained conversation (preserved across switches); no-op
+    // if it's already the visible one, so re-selecting keeps the history.
+    m_chat.setConversation(e->subject);
     emit selectedAgentChanged();
 }
 
