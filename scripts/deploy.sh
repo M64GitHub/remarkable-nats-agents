@@ -20,8 +20,13 @@ BIN="build-device/hello_remarkable"
 
 [[ -f "$BIN" ]] || { echo "Missing $BIN — run scripts/build-device.sh first." >&2; exit 1; }
 
-scp "$BIN" "$DEVICE:"
-echo "Copied binary to ${DEVICE}:~/hello_remarkable"
+# Copy to a temp name then atomically rename over the target. A plain scp fails
+# with "Text file busy" (ETXTBSY) if the app is currently running on the device;
+# rename replaces the directory entry while the running process keeps its inode,
+# so the NEXT launch gets the new binary.
+scp "$BIN" "$DEVICE:hello_remarkable.new"
+ssh "$DEVICE" 'mv -f hello_remarkable.new hello_remarkable'
+echo "Copied binary to ${DEVICE}:~/hello_remarkable (atomic; safe while it's running)"
 
 if [[ -n "$RM_SERVER" ]]; then
   tmp="$(mktemp)"
