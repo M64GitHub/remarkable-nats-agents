@@ -1,0 +1,4 @@
+/build/
+/build-device/
+*.user
+.DS_Store
