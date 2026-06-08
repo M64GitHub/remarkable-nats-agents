@@ -11,6 +11,10 @@ animations, large touch targets), cross-compiled with the official reMarkable SD
 It connects to a local `nats-server` on your LAN **or** to **Synadia Cloud (NGS)**
 over TLS with NKEY/JWT credentials — and you pick which right inside the UI.
 
+Under the hood, the **NATS client is written from scratch in Qt/C++** — the wire
+protocol spoken directly over a socket, with **no NATS client library** and no
+native dependencies that don't cross-compile to the device.
+
 > 🛠️ **Setting up?** See **[Prerequisites](#prerequisites)**. To build for the device
 > you'll need the reMarkable **ferrari SDK** —
 > [download it here](https://developer.remarkable.com/links) (matches your device's
@@ -20,6 +24,11 @@ over TLS with NKEY/JWT credentials — and you pick which right inside the UI.
 
 ## Features
 
+- **A from-scratch NATS client in Qt/C++** — no NATS library. The wire protocol is
+  implemented directly over `QSslSocket`: INFO/CONNECT handshake, PING/PONG,
+  PUB/SUB/UNSUB, MSG **+ HMSG (headers)**, the request/reply inbox + streaming
+  consumer, the TLS upgrade, and **NKEY/JWT (Ed25519)** auth for NGS. It sits behind
+  a clean `INatsConnection` seam (swappable later, e.g. for `nats.zig`).
 - **Agent roster** via NATS micro-service discovery (`$SRV`), shown as a grid of
   cards with **live heartbeat status** — agents light up as they come online and
   fade as they go.
