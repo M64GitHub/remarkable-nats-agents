@@ -146,12 +146,10 @@ bool AppController::loadRosterFromJson(const QByteArray &json)
     const QJsonObject root = doc.object();
 
     // Config supplies a default server only when the user hasn't set (persisted) one.
-    if (!m_serverUrlPersisted && root.contains(QStringLiteral("server"))) {
-        const QString url = root.value(QStringLiteral("server")).toString();
-        if (!url.isEmpty() && url != m_serverUrl) {
-            m_serverUrl = url;
-            emit serverUrlChanged();
-        }
+    const QString cfgServer = root.value(QStringLiteral("server")).toString();
+    if (!m_serverUrlPersisted && !cfgServer.isEmpty() && cfgServer != m_serverUrl) {
+        m_serverUrl = cfgServer;
+        emit serverUrlChanged();
     }
 
     const QJsonArray arr = root.value(QStringLiteral("agents")).toArray();
@@ -170,10 +168,11 @@ bool AppController::loadRosterFromJson(const QByteArray &json)
         e.online = false;   // unconfirmed until discovery/heartbeat says otherwise
         entries.append(e);
     }
-    if (entries.isEmpty())
-        return false;
     m_staticEntries = entries;
-    return true;
+    // A config is a valid roster source if it pins a server OR lists agents — a
+    // server-only config (common on the device, where discovery fills the roster)
+    // must "win" so we don't fall through to the bundled example's localhost URL.
+    return !cfgServer.isEmpty() || !entries.isEmpty();
 }
 
 void AppController::connectToServer()

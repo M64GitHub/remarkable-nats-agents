@@ -23,9 +23,11 @@ grows into the real app.
 - **Host desktop preview/build:** Qt **6.8.2** under `~/Qt` (installed via
   `aqtinstall`, matches the device) — Ubuntu's apt Qt is 6.4.2, below our floor.
   `scripts/run-desktop.sh` finds it via `QT_ROOT` (default `~/Qt/6.8.2/gcc_64`).
-- **Host cross-compile:** the **ferrari SDK for `5.7.121`/scarthgap** — a
-  login-gated download from developer.remarkable.com, so only the operator can
-  fetch it. Once installed, `scripts/build-device.sh` uses its sysroot Qt.
+- **Host cross-compile:** the ferrari SDK is installed at **`~/rm-sdk`** (SDK
+  `5.7.119`; its sysroot Qt is **6.8.2** — verified == device, all needed QML
+  modules present). Its env file exports `CMAKE_TOOLCHAIN_FILE`, so
+  `scripts/build-device.sh` cross-compiles after sourcing it. Cross-built aarch64
+  binary verified running on the device (discovery over Wi-Fi → laptop NATS).
 
 ## Inspect the device — don't assume
 The device is connected, so capability questions are answered by looking, not
@@ -132,7 +134,13 @@ older "Synadia Agents" service name was **v0.1** and is wrong for v0.3.
 
 ## On-device run sequence
 `systemctl stop xochitl` → `QT_QUICK_BACKEND=epaper ./hello_remarkable -platform epaper`
-→ Ctrl-C → `systemctl start xochitl`.
+→ Ctrl-C → `systemctl start xochitl`. Always restore xochitl (a `trap ... EXIT`
+one-liner is in `deploy.sh` / README §4).
+- Deploy with `RM_SERVER=nats://<host>:4222 scripts/deploy.sh` — the device has no
+  keyboard yet (M3), so the server is written to `~/agents.json` and read on launch;
+  the roster then fills via discovery.
+- Non-disruptive check (no xochitl stop): `AGENT_CHAT_DISCOVER=1
+  AGENT_CHAT_SMOKE_HOST=<host> QT_QPA_PLATFORM=offscreen ./hello_remarkable`.
 
 ## Dev loop
 inspect device → propose architecture (wait for OK) → implement a milestone →
