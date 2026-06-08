@@ -17,7 +17,7 @@ Working and verified on the real device:
   range → device-rendered page **thumbnails** as multiple attachments (§5.2 allows an
   array; enforce `attachments_ok` + `max_payload`). Verified on NGS — the pi vision
   agent read a 512×384 thumbnail's handwriting, so the full-res `.rm` renderer
-  (RM-PARSER-RENDERER.md) is **deferred as likely unnecessary**. Caveat: thumbnails
+  (docs/RM-PARSER-RENDERER.md) is **deferred as likely unnecessary**. Caveat: thumbnails
   are **lazy** — only already-rendered pages are attachable (NoteStore filters the
   rest; open a page on the device to render it).
 - UI polish — 3-across roster cards, chat bubbles + timestamps, in-app **Exit** button.
@@ -25,7 +25,7 @@ Working and verified on the real device:
 Known issue — **typing refresh latency**: inherent to the panel. `setCursorFlashTime(0)`
 + `QFont::NoAntialias` did **not** improve it; the real lever (`EPFrameBuffer::sendUpdate`
 waveform/partial control in `libqsgepaper`) has no public SDK header, so it's deferred.
-See IMPLEMENTATION-NOTES.md.
+See docs/IMPLEMENTATION-NOTES.md.
 
 Not done yet: mid-stream queries (§7), `audit.agents.*` tail.
 

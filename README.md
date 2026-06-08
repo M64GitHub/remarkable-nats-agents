@@ -57,7 +57,7 @@ over TLS with NKEY/JWT credentials — and you pick which right inside the UI.
 ```
 
 The QML layer never touches NATS; everything above the wire depends only on
-`INatsConnection`. See **[IMPLEMENTATION-NOTES.md](IMPLEMENTATION-NOTES.md)** for the
+`INatsConnection`. See **[IMPLEMENTATION-NOTES.md](docs/IMPLEMENTATION-NOTES.md)** for the
 design rationale and the hard-won gotchas.
 
 ## Status
@@ -69,7 +69,7 @@ design rationale and the hard-won gotchas.
 | M3 | On-screen keyboard + full-panel layout | ✅ |
 | M5 | TLS + NKEY/JWT for NGS / Synadia Cloud + context picker | ✅ |
 | M6 | Attach notebook pages as images (v1: device thumbnails) | ✅ |
-| — | Full-resolution in-app `.rm` renderer ([plan](RM-PARSER-RENDERER.md)) | planned |
+| — | Full-resolution in-app `.rm` renderer ([plan](docs/RM-PARSER-RENDERER.md)) | planned |
 | M4 | Mid-stream queries (§7) + `audit.*` activity feed | planned |
 
 ## Hardware & topology
@@ -191,11 +191,11 @@ ssh root@10.11.99.1 'AGENT_CHAT_DISCOVER=1 AGENT_CHAT_SMOKE_HOST=<server-ip> \
 ## Documentation
 
 - **[CLAUDE.md](CLAUDE.md)** — project brief, current status, constraints, protocol.
-- **[IMPLEMENTATION-NOTES.md](IMPLEMENTATION-NOTES.md)** — architecture rationale and
+- **[IMPLEMENTATION-NOTES.md](docs/IMPLEMENTATION-NOTES.md)** — architecture rationale and
   the gotchas (Qt/QML, NATS wire, TLS/NGS, e-paper refresh, attachments).
-- Attachments groundwork: **[FILE-STORE.md](FILE-STORE.md)** (how the device stores
-  documents), **[READING-NOTES.md](READING-NOTES.md)** (thumbnails as LLM input),
-  **[RM-PARSER-RENDERER.md](RM-PARSER-RENDERER.md)** (the planned full-res renderer).
+- Attachments groundwork: **[FILE-STORE.md](docs/FILE-STORE.md)** (how the device stores
+  documents), **[READING-NOTES.md](docs/READING-NOTES.md)** (thumbnails as LLM input),
+  **[RM-PARSER-RENDERER.md](docs/RM-PARSER-RENDERER.md)** (the planned full-res renderer).
 - Protocol: the **Synadia Agent Protocol** (v0.3) the client implements.
 
 ## Notes & constraints
