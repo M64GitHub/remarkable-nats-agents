@@ -10,6 +10,25 @@
 #include <QTimer>
 #include <QUuid>
 
+namespace {
+// Parse a max_payload string ("512KB", "1MB", "4MB", "1048576") to bytes (§2.1).
+// 1024-based units, matching NATS server conventions.
+int parsePayloadSize(const QString &raw)
+{
+    QString s = raw.trimmed().toUpper();
+    qint64 mult = 1;
+    if (s.endsWith(QLatin1String("KB"))) { mult = 1024; s.chop(2); }
+    else if (s.endsWith(QLatin1String("MB"))) { mult = 1024LL * 1024; s.chop(2); }
+    else if (s.endsWith(QLatin1String("GB"))) { mult = 1024LL * 1024 * 1024; s.chop(2); }
+    else if (s.endsWith(QLatin1String("B"))) { mult = 1; s.chop(1); }
+    bool ok = false;
+    const qint64 n = s.trimmed().toLongLong(&ok) * mult;
+    if (!ok)
+        return 0;
+    return n > 2'000'000'000LL ? 2'000'000'000 : static_cast<int>(n);
+}
+}  // namespace
+
 AgentProtocol::AgentProtocol(INatsConnection *conn, QObject *parent)
     : QObject(parent), m_conn(conn)
 {
@@ -73,13 +92,14 @@ void AgentProtocol::handleDiscoveryReply(const QByteArray &payload)
         if (ep.value(QStringLiteral("name")).toString() != QLatin1String("prompt"))
             continue;
         a.subject = ep.value(QStringLiteral("subject")).toString();
+        const QJsonObject epMeta = ep.value(QStringLiteral("metadata")).toObject();
         // Endpoint metadata values are strings on the wire (e.g. "true"), but
         // tolerate a real bool too.
-        const QJsonValue ao = ep.value(QStringLiteral("metadata")).toObject()
-                                  .value(QStringLiteral("attachments_ok"));
+        const QJsonValue ao = epMeta.value(QStringLiteral("attachments_ok"));
         a.attachmentsOk = ao.isBool()
                               ? ao.toBool()
                               : ao.toString().compare(QLatin1String("true"), Qt::CaseInsensitive) == 0;
+        a.maxPayloadBytes = parsePayloadSize(epMeta.value(QStringLiteral("max_payload")).toString());
         break;
     }
     if (a.subject.isEmpty())
@@ -107,7 +127,8 @@ void AgentProtocol::handleHeartbeat(const QByteArray &payload)
     emit heartbeat(id, o.value(QStringLiteral("interval_s")).toInt(30));
 }
 
-QString AgentProtocol::sendPrompt(const QString &subject, const QString &text)
+QString AgentProtocol::sendPrompt(const QString &subject, const QString &text,
+                                  const QList<Attachment> &attachments)
 {
     if (text.trimmed().isEmpty() || subject.isEmpty())
         return QString();
@@ -131,9 +152,18 @@ QString AgentProtocol::sendPrompt(const QString &subject, const QString &text)
 
     m_bySid.insert(req.sid, req);
 
-    // Send the JSON envelope form (§5.1). Plain text would also be valid, but
-    // the explicit envelope is the shape we extend with attachments later.
+    // JSON envelope (§5.1) with optional attachments (§5.2): standard padded base64.
     QJsonObject envelope{{QStringLiteral("prompt"), text}};
+    if (!attachments.isEmpty()) {
+        QJsonArray arr;
+        for (const Attachment &a : attachments) {
+            arr.append(QJsonObject{
+                {QStringLiteral("filename"), a.filename},
+                {QStringLiteral("content"), QString::fromLatin1(a.content.toBase64())},
+            });
+        }
+        envelope.insert(QStringLiteral("attachments"), arr);
+    }
     const QByteArray payload = QJsonDocument(envelope).toJson(QJsonDocument::Compact);
     m_conn->publish(subject, payload, req.inbox);
 

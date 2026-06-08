@@ -12,6 +12,7 @@ Item {
     signal keyText(string s)
     signal backspace()
     signal enter()
+    signal attach()
 
     property bool shifted: false
     property string keyLayer: "letters"     // "letters" | "symbols" (Item.layer is taken)
@@ -21,13 +22,13 @@ Item {
         ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
         ["a", "s", "d", "f", "g", "h", "j", "k", "l"],
         ["Shift", "z", "x", "c", "v", "b", "n", "m", "Del"],
-        ["123", "Space", "Send"]
+        ["123", "Attach", "Space", "Send"]
     ]
     readonly property var symbolsRows: [
         ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
         ["@", "#", "$", "%", "&", "-", "+", "(", ")", "/"],
         [".", ",", "?", "!", "'", "\"", ":", ";", "Del"],
-        ["ABC", "Space", "Send"]
+        ["ABC", "Attach", "Space", "Send"]
     ]
     readonly property var rows: keyLayer === "letters" ? lettersRows : symbolsRows
     readonly property int rowCount: rows.length
@@ -36,11 +37,11 @@ Item {
 
     function isSpecial(k) {
         return k === "Shift" || k === "Del" || k === "Send"
-            || k === "123" || k === "ABC" || k === "Space"
+            || k === "123" || k === "ABC" || k === "Space" || k === "Attach"
     }
     function keySpan(k) {
         if (k === "Space")
-            return 7
+            return 5.5
         if (isSpecial(k))
             return 1.5
         return 1
@@ -59,6 +60,7 @@ Item {
         case "Send":  kb.enter(); return
         case "123":   kb.keyLayer = "symbols"; return
         case "ABC":   kb.keyLayer = "letters"; return
+        case "Attach": kb.attach(); return
         case "Space": kb.keyText(" "); return
         default:
             kb.keyText(kb.shifted ? k.toUpperCase() : k)

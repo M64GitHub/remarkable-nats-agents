@@ -42,9 +42,9 @@ Window {
             anchors.left: parent.left
             anchors.leftMargin: Theme.pad
             anchors.verticalCenter: parent.verticalCenter
-            visible: win.view === "chat"
-            text: "‹ Agents"
-            onClicked: win.view = "roster"
+            visible: win.view !== "roster"
+            text: win.view === "notes" ? "‹ Chat" : "‹ Agents"
+            onClicked: win.view = (win.view === "notes" ? "chat" : "roster")
         }
 
         Text {
@@ -56,7 +56,8 @@ Window {
             elide: Text.ElideRight
             width: parent.width - Theme.pad * 8
             horizontalAlignment: Text.AlignHCenter
-            text: win.view === "chat" && App.agentSelected ? App.selectedAgent : "Agents"
+            text: win.view === "notes" ? "Attach a note"
+                  : (win.view === "chat" && App.agentSelected ? App.selectedAgent : "Agents")
         }
 
         // Clean exit — the device often has no working Ctrl-C (ssh without a PTY
@@ -101,6 +102,14 @@ Window {
         ChatView {
             anchors.fill: parent
             visible: win.view === "chat"
+            onAttachRequested: win.view = "notes"
+        }
+
+        NoteBrowser {
+            anchors.fill: parent
+            visible: win.view === "notes"
+            onAttached: win.view = "chat"
+            onCancelled: win.view = "chat"
         }
     }
 

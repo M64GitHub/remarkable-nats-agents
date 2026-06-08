@@ -21,6 +21,8 @@ public:
         QString subject;      // prompt endpoint subject to publish to
         QStringList instanceIds;  // $SRV instance ids behind this subject (liveness)
         bool online = true;   // M1: assumed; M2: from heartbeats
+        bool attachmentsOk = false;  // endpoint accepts attachments (§2.1)
+        int maxPayloadBytes = 0;     // endpoint max_payload (0 = unknown)
     };
 
     enum Roles {

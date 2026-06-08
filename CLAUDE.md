@@ -12,6 +12,14 @@ Working and verified on the real device:
 - **M3** — on-screen keyboard (`src/qml/Keyboard.qml`) + fills the 1620×2160 panel.
 - **M5** — TLS + NKEY/JWT auth to **NGS / Synadia Cloud** (`tls://connect.ngs.global`).
   Verified discovering + prompting NGS agents from both desktop and the device.
+  Plus an in-roster **NATS context picker** (`~/.config/nats/context/*.json`).
+- **M6 (v1)** — **attachments**: Attach key → note browser (notebooks only) → page
+  range → device-rendered page **thumbnails** as multiple attachments (§5.2 allows an
+  array; enforce `attachments_ok` + `max_payload`). Verified on NGS — the pi vision
+  agent read a 512×384 thumbnail's handwriting, so the full-res `.rm` renderer
+  (RM-PARSER-RENDERER.md) is **deferred as likely unnecessary**. Caveat: thumbnails
+  are **lazy** — only already-rendered pages are attachable (NoteStore filters the
+  rest; open a page on the device to render it).
 - UI polish — 3-across roster cards, chat bubbles + timestamps, in-app **Exit** button.
 
 Known issue — **typing refresh latency**: inherent to the panel. `setCursorFlashTime(0)`
@@ -133,6 +141,8 @@ older "Synadia Agents" service name was **v0.1** and is wrong for v0.3.
   ack/response/terminator/error signals; `discover()` ($SRV scatter-gather) +
   `startHeartbeatWatch()` (agents.hb.*.*.*) → `agentsDiscovered`/`heartbeat`.
 - `src/agents/{AgentModel,ChatModel}.{h,cpp}` — roster + conversation list models.
+- `src/notes/NoteStore.{h,cpp}` — lists notebooks (renderable pages) from the xochitl
+  store for the attachment browser. Root: `$AGENT_CHAT_XOCHITL` or the device default.
 - `src/agents/AppController.{h,cpp}` — QML-facing facade (`App` context property);
   loads static roster (`$AGENT_CHAT_CONFIG` / `./agents.json` / bundled / built-in).
 - `src/qml/*` — hand-rolled flat UI (roster grid of `AgentDelegate` cards, chat
@@ -141,9 +151,10 @@ older "Synadia Agents" service name was **v0.1** and is wrong for v0.3.
 - `src/main.cpp` — wires it together; sets e-paper hints (no cursor blink, no text
   AA). Headless verification (no QML/display): `AGENT_CHAT_SMOKE=<text>` = prompt
   round-trip; `AGENT_CHAT_DISCOVER=1` = $SRV discovery + heartbeat probe;
-  `AGENT_CHAT_TEST=chat` = ChatModel multi-conversation self-test. Add
-  `AGENT_CHAT_TLS=1 AGENT_CHAT_CREDS=<.creds>` + `AGENT_CHAT_SMOKE_HOST=connect.ngs.global`
-  to target NGS.
+  `AGENT_CHAT_TEST=chat` = ChatModel self-test; `AGENT_CHAT_TEST=notes` = NoteStore
+  self-test (`$AGENT_CHAT_XOCHITL`). Add `AGENT_CHAT_TLS=1 AGENT_CHAT_CREDS=<.creds>`
+  + `AGENT_CHAT_SMOKE_HOST=connect.ngs.global` to target NGS; `AGENT_CHAT_ATTACH=p1,p2`
+  to attach files in the smoke prompt.
 
 ## Scripts
 - `scripts/inspect-device.sh` — read-only capability probe of the connected device.

@@ -5,3 +5,6 @@
 .DS_Store
 aqtinstall.log
 __pycache__/
+
+# local reMarkable note fixture for RM parser/renderer dev (personal content — not committed)
+test-data/rm-sample-AI-Workslop/

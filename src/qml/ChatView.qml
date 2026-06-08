@@ -7,13 +7,14 @@ import AgentChat
 // Shift+Enter inserts a newline.
 Item {
     id: root
+    signal attachRequested()   // keyboard's Attach key — Main opens the note browser
 
     ListView {
         id: list
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.bottom: inputRow.top
+        anchors.bottom: attachBar.top
         clip: true
         model: App.messages
         boundsBehavior: Flickable.StopAtBounds
@@ -40,6 +41,47 @@ Item {
         font.family: Theme.uiFont
         font.pixelSize: Theme.fontM
         color: Theme.mute
+    }
+
+    // Staged attachment chip — tap to remove. Collapses to nothing when empty.
+    Item {
+        id: attachBar
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: inputRow.top
+        height: App.attachmentLabel.length > 0 ? Theme.touch * 0.8 : 0
+        visible: height > 0
+        clip: true
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.leftMargin: Theme.pad
+            anchors.right: parent.right
+            anchors.rightMargin: Theme.pad
+            anchors.verticalCenter: parent.verticalCenter
+            height: Theme.touch * 0.62
+            radius: Theme.gap
+            color: chipMouse.pressed ? Theme.fill : Theme.bg
+            border.color: Theme.hairline
+            border.width: Theme.border
+
+            Text {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.margins: Theme.gap
+                anchors.verticalCenter: parent.verticalCenter
+                elide: Text.ElideMiddle
+                text: "attached: " + App.attachmentLabel + "   (tap to remove)"
+                font.family: Theme.uiFont
+                font.pixelSize: Theme.fontS
+                color: chipMouse.pressed ? Theme.bg : Theme.fg
+            }
+            MouseArea {
+                id: chipMouse
+                anchors.fill: parent
+                onClicked: App.clearAttachment()
+            }
+        }
     }
 
     Rectangle {   // separator above the input row
@@ -139,6 +181,7 @@ Item {
                 field.remove(field.cursorPosition - 1, field.cursorPosition)
         }
         onEnter: root.send()
+        onAttach: root.attachRequested()
     }
 
     function send() {

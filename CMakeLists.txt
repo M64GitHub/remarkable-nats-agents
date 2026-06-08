@@ -23,7 +23,8 @@ qt_add_executable(hello_remarkable
     src/agents/AgentProtocol.cpp
     src/agents/AgentModel.cpp
     src/agents/ChatModel.cpp
-    src/agents/AppController.cpp)
+    src/agents/AppController.cpp
+    src/notes/NoteStore.cpp)
 
 # A `pragma Singleton` QML file must also be flagged here, or qt_add_qml_module
 # registers it as a plain type and `Theme.<prop>` resolves to undefined at runtime.
@@ -41,6 +42,8 @@ qt_add_qml_module(hello_remarkable
         src/qml/ChatView.qml
         src/qml/MessageDelegate.qml
         src/qml/Keyboard.qml
+        src/qml/NoteBrowser.qml
+        src/qml/StepBox.qml
     RESOURCES
         config/agents.example.json)
 

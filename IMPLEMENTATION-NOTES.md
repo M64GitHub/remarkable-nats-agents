@@ -119,6 +119,34 @@ JWT/NKEY auth on the same `QSslSocket`:
   AGENT_CHAT_SMOKE_HOST=connect.ngs.global` with the SMOKE/DISCOVER modes. Verified
   discovering + prompting NGS agents from both desktop and device.
 
+## Attachments (M6 v1 — thumbnails)
+
+Attach notebook pages to a prompt as images.
+
+- **Protocol reality:** `attachments` is an **array** (§5.2) — multiple files are
+  fine, so we send one PNG per page. No need for SVG, image concatenation, or (yet)
+  a `.rm` renderer. The real limit is `max_payload` (1 MB on the agents we use),
+  which the caller enforces locally (§5.4): we sum the encoded size and **block**
+  oversize sends with a notice.
+- **v1 source = device thumbnails.** `NoteStore` reads the xochitl store
+  (`<uuid>.metadata` + `.content` + `.thumbnails/<pageId>.png`), notebooks only
+  (`type==DocumentType`, `content.fileType==notebook`), reconstructing folder paths
+  from `CollectionType` parents.
+- **Thumbnails are LAZY** (corrects READING-NOTES.md's "every page"): pages never
+  opened recently have no PNG, and some notes have no `.thumbnails` dir at all (on
+  the real device, 36 notebooks → 13 with any rendered page). `NoteStore` filters to
+  pages that actually have a thumbnail, so the picker only offers attachable pages.
+  Full coverage would need the v2 `.rm` renderer (RM-PARSER-RENDERER.md).
+- **The big v1 result:** the NGS **pi vision agent read a 512×384 thumbnail's
+  handwriting** correctly. So low-res thumbnails are good enough, and the full-res
+  renderer is **deferred as likely unnecessary** — exactly why we tested v1 first.
+- **Wire:** `AgentProtocol::sendPrompt(subject, text, attachments)` →
+  `{prompt, attachments:[{filename, content:<standard base64>}]}`. Prompt must still
+  be non-empty (§5.1) even with attachments.
+- **Device-first:** the browser reads the *device's* library; on the desktop point
+  `$AGENT_CHAT_XOCHITL` at a copied sample (`test-data/`, gitignored). Sending page
+  images off-device is a real consent decision (the input is confirmed before send).
+
 ## Testing fixtures
 
 - `scripts/echo-responder.py` — a dependency-light (nats-py only) stub that speaks

@@ -3,6 +3,7 @@
 #include "agents/AgentModel.h"
 #include "agents/AgentProtocol.h"
 #include "agents/ChatModel.h"
+#include "notes/NoteStore.h"
 
 #include <QHash>
 #include <QObject>
@@ -28,6 +29,10 @@ class AppController : public QObject
     // NATS CLI contexts found on the system (~/.config/nats/context/*.json).
     Q_PROPERTY(QStringList natsContexts READ natsContexts NOTIFY natsContextsChanged)
     Q_PROPERTY(QString selectedContext READ selectedContext NOTIFY selectedContextChanged)
+    // Attachments (notebook page thumbnails).
+    Q_PROPERTY(QObject *notes READ notes CONSTANT)
+    Q_PROPERTY(bool attachmentsSupported READ attachmentsSupported NOTIFY selectedAgentChanged)
+    Q_PROPERTY(QString attachmentLabel READ attachmentLabel NOTIFY attachmentChanged)
 
 public:
     explicit AppController(AgentProtocol *protocol, QObject *parent = nullptr);
@@ -40,6 +45,9 @@ public:
     bool agentSelected() const { return m_selectedRow >= 0; }
     QStringList natsContexts() const { return m_natsContexts; }
     QString selectedContext() const { return m_selectedContext; }
+    QObject *notes() { return &m_noteStore; }
+    bool attachmentsSupported() const { return m_selectedAttachmentsOk; }
+    QString attachmentLabel() const { return m_attachmentLabel; }
 
     // Populate the roster from static config: $AGENT_CHAT_CONFIG, else a local
     // ./agents.json, else the bundled example, else a built-in echo entry.
@@ -51,7 +59,9 @@ public slots:
     void useContext(const QString &name);      // apply a NATS context (url + creds)
     void refresh();                            // re-run $SRV discovery
     void selectAgent(int row);                 // choose an agent; resets the chat
-    void sendPrompt(const QString &text);      // send to the selected agent
+    void sendPrompt(const QString &text);      // send to the selected agent (+ staged attachment)
+    void stageNotePages(int noteRow, int fromPage, int toPage);  // 1-based, inclusive
+    void clearAttachment();
 
 signals:
     void connectionStateChanged();
@@ -59,6 +69,7 @@ signals:
     void selectedAgentChanged();
     void natsContextsChanged();
     void selectedContextChanged();
+    void attachmentChanged();
     void notice(const QString &message);       // transient, surfaced by the UI
 
 private:
@@ -75,6 +86,7 @@ private:
     AgentProtocol *m_protocol = nullptr;
     AgentModel m_agents;
     ChatModel m_chat;
+    NoteStore m_noteStore;
 
     QString m_connectionState = QStringLiteral("disconnected");
     QString m_serverUrl = QStringLiteral("nats://127.0.0.1:4222");
@@ -86,6 +98,12 @@ private:
     int m_selectedRow = -1;
     QString m_selectedTitle;
     QString m_selectedSubject;
+    bool m_selectedAttachmentsOk = false;
+    int m_selectedMaxPayload = 0;
+
+    // Staged attachment (one note, a page range) shown in the chat input.
+    QString m_attachmentLabel;
+    QStringList m_stagedThumbs;          // absolute thumbnail paths to send
 
     // Roster sources: static (config/built-in) shown until/unless discovery finds
     // agents; discovered ones replace it while connected.

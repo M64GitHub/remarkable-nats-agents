@@ -9,9 +9,15 @@ Probed live on the Paper Pro (`ferrari`) on **2026-06-08** with the note **"AI W
 
 ## TL;DR — the shortcut
 
-**The device already renders every page to a PNG thumbnail.** A vision LLM can read those
-PNGs directly — including handwriting — with **no `.rm` decoding and no OCR step**. So the
-attachment flow is simply: *pick note → pick page range → attach the matching thumbnail PNGs.*
+**The device renders pages to a PNG thumbnail.** A vision LLM can read those PNGs directly
+— including handwriting — with **no `.rm` decoding and no OCR step**. So the attachment flow
+is simply: *pick note → pick page range → attach the matching thumbnail PNGs.*
+
+> **Correction (verified in M6):** thumbnails are **lazy**, not "every page". Pages never
+> opened recently have no PNG, and some notes have no `.thumbnails` dir at all (live device:
+> 36 notebooks → only 13 with any rendered page). v1 attaches only rendered pages
+> (`NoteStore` filters the rest); full coverage needs the `.rm` renderer. The M6 win stands:
+> a vision LLM **did** read a 512×384 thumbnail's handwriting, so low-res is good enough.
 
 ```
 <UUID>.thumbnails/<PAGE_UUID>.png      ← rendered image of each page, LLM-readable

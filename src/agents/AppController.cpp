@@ -105,6 +105,13 @@ AppController::AppController(AgentProtocol *protocol, QObject *parent)
     const QString savedContext = QSettings().value(QStringLiteral("context")).toString();
     if (!savedContext.isEmpty() && m_natsContexts.contains(savedContext))
         applyContext(savedContext, false);
+
+    // The note store reads the device's xochitl library; on the desktop point
+    // $AGENT_CHAT_XOCHITL at a copied sample folder for development.
+    QString xroot = qEnvironmentVariable("AGENT_CHAT_XOCHITL");
+    if (xroot.isEmpty())
+        xroot = QStringLiteral("/home/root/.local/share/remarkable/xochitl");
+    m_noteStore.setRootPath(expandTilde(xroot));
 }
 
 void AppController::scanContexts()
@@ -304,6 +311,8 @@ void AppController::onAgentsDiscovered(const QVector<AgentProtocol::DiscoveredAg
             e.subject = a.subject;
             e.instanceIds = {a.instanceId};
             e.online = true;   // it just answered discovery
+            e.attachmentsOk = a.attachmentsOk;
+            e.maxPayloadBytes = a.maxPayloadBytes;
             entries.append(e);
         } else if (!entries[found].instanceIds.contains(a.instanceId)) {
             entries[found].instanceIds.append(a.instanceId);
@@ -374,17 +383,45 @@ void AppController::selectAgent(int row)
     m_selectedRow = row;
     m_selectedTitle = e->name;
     m_selectedSubject = e->subject;
+    m_selectedAttachmentsOk = e->attachmentsOk;
+    m_selectedMaxPayload = e->maxPayloadBytes;
+    clearAttachment();   // a staged attachment doesn't carry across agent switches
     // Show this agent's retained conversation (preserved across switches); no-op
     // if it's already the visible one, so re-selecting keeps the history.
     m_chat.setConversation(e->subject);
     emit selectedAgentChanged();
 }
 
+void AppController::stageNotePages(int noteRow, int fromPage, int toPage)
+{
+    const NoteStore::Note *n = m_noteStore.at(noteRow);
+    if (!n || n->pages.isEmpty())
+        return;
+    int from = qBound(1, qMin(fromPage, toPage), n->pages.size());
+    int to = qBound(1, qMax(fromPage, toPage), n->pages.size());
+    m_stagedThumbs.clear();
+    for (int i = from - 1; i <= to - 1; ++i)
+        m_stagedThumbs << n->pages[i].thumbnail;
+    m_attachmentLabel = (from == to)
+        ? QStringLiteral("%1 · p%2").arg(n->name).arg(from)
+        : QStringLiteral("%1 · p%2–%3").arg(n->name).arg(from).arg(to);
+    emit attachmentChanged();
+}
+
+void AppController::clearAttachment()
+{
+    if (m_stagedThumbs.isEmpty() && m_attachmentLabel.isEmpty())
+        return;
+    m_stagedThumbs.clear();
+    m_attachmentLabel.clear();
+    emit attachmentChanged();
+}
+
 void AppController::sendPrompt(const QString &text)
 {
     const QString trimmed = text.trimmed();
     if (trimmed.isEmpty())
-        return;
+        return;   // §5.1: prompt must be non-empty (even with attachments)
     if (m_selectedRow < 0) {
         emit notice(QStringLiteral("select an agent first"));
         return;
@@ -393,11 +430,45 @@ void AppController::sendPrompt(const QString &text)
         emit notice(QStringLiteral("not connected to NATS"));
         return;
     }
-    const QString id = m_protocol->sendPrompt(m_selectedSubject, trimmed);
+
+    // Build + locally validate attachments (§5.4) before publishing.
+    QList<AgentProtocol::Attachment> atts;
+    if (!m_stagedThumbs.isEmpty()) {
+        if (!m_selectedAttachmentsOk) {
+            emit notice(QStringLiteral("this agent doesn't accept attachments"));
+            return;
+        }
+        qint64 encoded = trimmed.toUtf8().size() + 32;   // prompt + envelope overhead
+        int idx = 1;
+        for (const QString &path : m_stagedThumbs) {
+            QFile f(path);
+            if (!f.open(QIODevice::ReadOnly)) {
+                emit notice(QStringLiteral("can't read a page image — try Refresh"));
+                return;
+            }
+            AgentProtocol::Attachment a;
+            a.filename = QStringLiteral("page-%1.png").arg(idx++);
+            a.content = f.readAll();
+            atts.append(a);
+            encoded += (qint64(a.content.size()) + 2) / 3 * 4 + a.filename.size() + 40;
+        }
+        if (m_selectedMaxPayload > 0 && encoded > m_selectedMaxPayload) {
+            emit notice(QStringLiteral("attachment too large (~%1 KB > %2 KB) — pick fewer pages")
+                            .arg((encoded + 1023) / 1024)
+                            .arg(m_selectedMaxPayload / 1024));
+            return;
+        }
+    }
+
+    const QString id = m_protocol->sendPrompt(m_selectedSubject, trimmed, atts);
     if (id.isEmpty()) {
         emit notice(QStringLiteral("could not send prompt"));
         return;
     }
-    m_chat.appendUser(trimmed);
+    const QString display = m_attachmentLabel.isEmpty()
+        ? trimmed
+        : trimmed + QStringLiteral("\n[attached: %1]").arg(m_attachmentLabel);
+    m_chat.appendUser(display);
     m_chat.appendAgentPending(id);
+    clearAttachment();
 }

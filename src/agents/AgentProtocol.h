@@ -1,6 +1,8 @@
 #pragma once
 
+#include <QByteArray>
 #include <QHash>
+#include <QList>
 #include <QObject>
 #include <QString>
 #include <QVariantMap>
@@ -36,16 +38,25 @@ public:
         QString subject;          // prompt endpoint subject — publish here
         QString protocolVersion;  // metadata.protocol_version
         bool attachmentsOk = false;
+        int maxPayloadBytes = 0;  // endpoint max_payload (0 = unknown)
+    };
+
+    // One outgoing attachment (§5.2): a filename and the raw file bytes (we base64
+    // them on the wire).
+    struct Attachment {
+        QString filename;
+        QByteArray content;
     };
 
     explicit AgentProtocol(INatsConnection *conn, QObject *parent = nullptr);
 
     INatsConnection *connection() const { return m_conn; }
 
-    // Send `text` to a prompt endpoint `subject` (learned from discovery, or from
-    // static config). Returns an opaque request id that tags every signal emitted
-    // for this stream. Empty text is rejected (returns "").
-    QString sendPrompt(const QString &subject, const QString &text);
+    // Send `text` (+ optional attachments) to a prompt endpoint `subject` (learned
+    // from discovery, or from static config). Returns an opaque request id that tags
+    // every signal emitted for this stream. Empty text is rejected (returns "").
+    QString sendPrompt(const QString &subject, const QString &text,
+                       const QList<Attachment> &attachments = {});
 
     // Subscribe to the heartbeat wildcard (agents.hb.*.*.*). Call before discover()
     // so we don't miss a just-discovered agent's first beat (§8.5). Idempotent-ish:

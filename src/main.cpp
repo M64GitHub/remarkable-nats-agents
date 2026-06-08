@@ -10,9 +10,12 @@
 #include <csignal>
 #include <cstdio>
 
+#include <QFile>
+
 #include "nats/NatsClient.h"
 #include "agents/AgentProtocol.h"
 #include "agents/AppController.h"
+#include "notes/NoteStore.h"
 
 namespace {
 
@@ -50,9 +53,29 @@ int runSmoke(QGuiApplication &app, const QString &promptText)
     auto *nats = new NatsClient(&app);
     auto *proto = new AgentProtocol(nats, &app);
 
+    // Optional attachments: AGENT_CHAT_ATTACH=path1,path2 (~ expanded).
+    QList<AgentProtocol::Attachment> atts;
+    const QString attachEnv = qEnvironmentVariable("AGENT_CHAT_ATTACH");
+    if (!attachEnv.isEmpty()) {
+        int idx = 1;
+        const QStringList paths = attachEnv.split(QLatin1Char(','), Qt::SkipEmptyParts);
+        for (const QString &raw : paths) {
+            QString path = raw.trimmed();
+            if (path.startsWith(QStringLiteral("~/")))
+                path = QDir::homePath() + path.mid(1);
+            QFile f(path);
+            if (f.open(QIODevice::ReadOnly)) {
+                atts.append({QStringLiteral("page-%1.png").arg(idx++), f.readAll()});
+            } else {
+                out << "[smoke] cannot read attachment: " << path << "\n";
+            }
+        }
+        out << "[smoke] " << atts.size() << " attachment(s)\n"; out.flush();
+    }
+
     QObject::connect(nats, &INatsConnection::connected, &app, [&]() {
         out << "[smoke] connected; sending prompt\n"; out.flush();
-        proto->sendPrompt(subject, promptText);
+        proto->sendPrompt(subject, promptText, atts);
     });
     QObject::connect(nats, &INatsConnection::errorOccurred, &app, [&](const QString &m) {
         out << "[smoke] connection error: " << m << "\n"; out.flush();
@@ -158,6 +181,34 @@ int runChatTest()
     return ok ? 0 : 1;
 }
 
+// Headless self-test for the note store (AGENT_CHAT_TEST=notes): lists notebooks
+// from $AGENT_CHAT_XOCHITL and checks each page thumbnail exists.
+int runNotesTest()
+{
+    QTextStream out(stdout);
+    NoteStore store;
+    QString root = qEnvironmentVariable("AGENT_CHAT_XOCHITL");
+    if (root.isEmpty())
+        root = QStringLiteral("/home/root/.local/share/remarkable/xochitl");
+    if (root.startsWith(QStringLiteral("~/")))
+        root = QDir::homePath() + root.mid(1);
+    store.setRootPath(root);
+    out << "root: " << root << "\n" << "notebooks: " << store.count() << "\n";
+    bool ok = store.count() > 0;
+    for (int i = 0; i < store.count(); ++i) {
+        const NoteStore::Note *n = store.at(i);
+        out << "  - \"" << n->name << "\"  folder='" << n->folder
+            << "'  pages=" << n->pages.size() << "\n";
+        for (const NoteStore::Page &p : n->pages) {
+            const bool exists = QFile::exists(p.thumbnail);
+            ok = ok && exists;
+            out << "      " << (exists ? "[ok] " : "[MISSING] ") << p.thumbnail << "\n";
+        }
+    }
+    out << (ok ? "RESULT: PASS\n" : "RESULT: FAIL\n");
+    return ok ? 0 : 1;
+}
+
 }  // namespace
 
 // We own the object graph here (transport -> protocol -> controller) and hand the
@@ -186,6 +237,8 @@ int main(int argc, char *argv[])
         return runDiscover(app);
     if (qEnvironmentVariable("AGENT_CHAT_TEST") == QLatin1String("chat"))
         return runChatTest();
+    if (qEnvironmentVariable("AGENT_CHAT_TEST") == QLatin1String("notes"))
+        return runNotesTest();
 
     NatsClient nats;
     AgentProtocol protocol(&nats);
