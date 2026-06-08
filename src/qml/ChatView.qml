@@ -1,0 +1,131 @@
+import QtQuick
+import AgentChat
+
+// Second screen: the conversation plus a prompt input row. M1 input is via a
+// hardware keyboard (desktop, or BT/USB on device) — Enter sends, Shift+Enter
+// inserts a newline. The on-screen QML keyboard for bare-device typing is M3 and
+// will drive this same TextEdit, so nothing here needs to change for it.
+Item {
+    id: root
+
+    ListView {
+        id: list
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: inputRow.top
+        clip: true
+        model: App.messages
+        boundsBehavior: Flickable.StopAtBounds
+        topMargin: Theme.gap
+        bottomMargin: Theme.gap
+        cacheBuffer: 0
+
+        delegate: MessageDelegate {
+            width: ListView.view.width
+            text: model.text
+            isUser: model.isUser
+            status: model.status
+        }
+
+        // Keep the latest message in view as content streams in.
+        onCountChanged: positionViewAtEnd()
+        Component.onCompleted: positionViewAtEnd()
+    }
+
+    Text {
+        anchors.centerIn: list
+        visible: list.count === 0
+        text: "Send a prompt to start"
+        font.family: Theme.uiFont
+        font.pixelSize: Theme.fontM
+        color: Theme.mute
+    }
+
+    Rectangle {   // separator above input
+        anchors.bottom: inputRow.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: Theme.border
+        color: Theme.hairline
+    }
+
+    // ── Input row ──────────────────────────────────────────────────────────────
+    Item {
+        id: inputRow
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        height: Math.max(Theme.touch + Theme.gap, field.implicitHeight + Theme.gap * 2)
+
+        Rectangle {
+            id: fieldBox
+            anchors.left: parent.left
+            anchors.leftMargin: Theme.pad
+            anchors.right: sendButton.left
+            anchors.rightMargin: Theme.gap
+            anchors.verticalCenter: parent.verticalCenter
+            height: Math.max(Theme.touch, field.implicitHeight + Theme.gap)
+            color: Theme.bg
+            border.color: Theme.hairline
+            border.width: Theme.border
+
+            TextEdit {
+                id: field
+                anchors.fill: parent
+                anchors.margins: Theme.gap
+                font.family: Theme.uiFont
+                font.pixelSize: Theme.fontM
+                color: Theme.fg
+                wrapMode: TextEdit.Wrap
+                textFormat: TextEdit.PlainText
+                focus: true
+                selectByMouse: true
+
+                Keys.onReturnPressed: function(event) {
+                    if (event.modifiers & Qt.ShiftModifier) {
+                        event.accepted = false   // Shift+Enter: newline
+                    } else {
+                        root.send()
+                        event.accepted = true
+                    }
+                }
+                Keys.onEnterPressed: function(event) {
+                    if (event.modifiers & Qt.ShiftModifier) {
+                        event.accepted = false
+                    } else {
+                        root.send()
+                        event.accepted = true
+                    }
+                }
+            }
+
+            Text {   // placeholder
+                anchors.fill: field
+                visible: field.text.length === 0
+                text: "Type a prompt…"
+                font.family: Theme.uiFont
+                font.pixelSize: Theme.fontM
+                color: Theme.mute
+            }
+        }
+
+        FlatButton {
+            id: sendButton
+            anchors.right: parent.right
+            anchors.rightMargin: Theme.pad
+            anchors.verticalCenter: parent.verticalCenter
+            text: "Send"
+            enabled: field.text.trim().length > 0
+            onClicked: root.send()
+        }
+    }
+
+    function send() {
+        var t = field.text
+        if (t.trim().length === 0)
+            return
+        App.sendPrompt(t)
+        field.clear()
+    }
+}

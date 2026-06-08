@@ -1,4 +1,7 @@
 /build/
 /build-device/
+/build-desktop/
 *.user
 .DS_Store
+aqtinstall.log
+__pycache__/

@@ -1,0 +1,19 @@
+{
+  "server": "nats://127.0.0.1:4222",
+  "agents": [
+    {
+      "agent": "echo",
+      "owner": "local",
+      "name": "test",
+      "description": "Local echo responder for testing (scripts/echo-responder.py)",
+      "subject": "agents.prompt.echo.local.test"
+    },
+    {
+      "agent": "cc",
+      "owner": "m64",
+      "name": "hello-remarkable",
+      "description": "Claude Code channel on NGS (needs creds + TLS, M5)",
+      "subject": "agents.prompt.cc.m64.hello-remarkable"
+    }
+  ]
+}

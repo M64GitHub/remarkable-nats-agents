@@ -1,0 +1,65 @@
+#pragma once
+
+#include "agents/AgentModel.h"
+#include "agents/ChatModel.h"
+
+#include <QObject>
+#include <QString>
+
+class AgentProtocol;
+
+// The single QML-facing facade (exposed as the context property `App`). Owns the
+// roster and chat models, drives connection state, and translates UI intents
+// (connect, select an agent, send a prompt) into AgentProtocol calls — then maps
+// the streaming protocol signals back onto the chat model.
+class AppController : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(QObject *agents READ agents CONSTANT)
+    Q_PROPERTY(QObject *messages READ messages CONSTANT)
+    Q_PROPERTY(QString connectionState READ connectionState NOTIFY connectionStateChanged)
+    Q_PROPERTY(QString serverUrl READ serverUrl NOTIFY serverUrlChanged)
+    Q_PROPERTY(QString selectedAgent READ selectedAgent NOTIFY selectedAgentChanged)
+    Q_PROPERTY(bool agentSelected READ agentSelected NOTIFY selectedAgentChanged)
+
+public:
+    explicit AppController(AgentProtocol *protocol, QObject *parent = nullptr);
+
+    QObject *agents() { return &m_agents; }
+    QObject *messages() { return &m_chat; }
+    QString connectionState() const { return m_connectionState; }
+    QString serverUrl() const { return m_serverUrl; }
+    QString selectedAgent() const { return m_selectedTitle; }
+    bool agentSelected() const { return m_selectedRow >= 0; }
+
+    // Populate the roster from static config: $AGENT_CHAT_CONFIG, else a local
+    // ./agents.json, else the bundled example, else a built-in echo entry.
+    void loadRoster();
+
+public slots:
+    void connectToServer();                    // dial the configured server URL
+    void setServerUrl(const QString &url);     // change + persist the server address
+    void selectAgent(int row);                 // choose an agent; resets the chat
+    void sendPrompt(const QString &text);      // send to the selected agent
+
+signals:
+    void connectionStateChanged();
+    void serverUrlChanged();
+    void selectedAgentChanged();
+    void notice(const QString &message);       // transient, surfaced by the UI
+
+private:
+    void setConnectionState(const QString &state);
+    bool loadRosterFromJson(const QByteArray &json);
+
+    AgentProtocol *m_protocol = nullptr;
+    AgentModel m_agents;
+    ChatModel m_chat;
+
+    QString m_connectionState = QStringLiteral("disconnected");
+    QString m_serverUrl = QStringLiteral("nats://127.0.0.1:4222");
+    bool m_serverUrlPersisted = false;   // a user-set URL wins over config defaults
+    int m_selectedRow = -1;
+    QString m_selectedTitle;
+    QString m_selectedSubject;
+};
