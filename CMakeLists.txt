@@ -35,6 +35,7 @@ qt_add_qml_module(hello_remarkable
         src/qml/AgentDelegate.qml
         src/qml/ChatView.qml
         src/qml/MessageDelegate.qml
+        src/qml/Keyboard.qml
     RESOURCES
         config/agents.example.json)
 

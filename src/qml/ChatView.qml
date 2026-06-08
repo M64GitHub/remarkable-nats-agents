@@ -1,10 +1,10 @@
 import QtQuick
 import AgentChat
 
-// Second screen: the conversation plus a prompt input row. M1 input is via a
-// hardware keyboard (desktop, or BT/USB on device) — Enter sends, Shift+Enter
-// inserts a newline. The on-screen QML keyboard for bare-device typing is M3 and
-// will drive this same TextEdit, so nothing here needs to change for it.
+// Second screen: the conversation, a prompt input row, and the on-screen keyboard.
+// Input works three ways, all driving the same TextEdit: the on-screen keyboard
+// (bare device), and a hardware keyboard (desktop / BT) where Enter sends and
+// Shift+Enter inserts a newline.
 Item {
     id: root
 
@@ -28,7 +28,6 @@ Item {
             status: model.status
         }
 
-        // Keep the latest message in view as content streams in.
         onCountChanged: positionViewAtEnd()
         Component.onCompleted: positionViewAtEnd()
     }
@@ -42,7 +41,7 @@ Item {
         color: Theme.mute
     }
 
-    Rectangle {   // separator above input
+    Rectangle {   // separator above the input row
         anchors.bottom: inputRow.top
         anchors.left: parent.left
         anchors.right: parent.right
@@ -55,7 +54,8 @@ Item {
         id: inputRow
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.bottom: parent.bottom
+        anchors.bottom: keyboard.top
+        anchors.bottomMargin: Theme.gap
         height: Math.max(Theme.touch + Theme.gap, field.implicitHeight + Theme.gap * 2)
 
         Rectangle {
@@ -119,6 +119,25 @@ Item {
             enabled: field.text.trim().length > 0
             onClicked: root.send()
         }
+    }
+
+    // ── On-screen keyboard ──────────────────────────────────────────────────────
+    Keyboard {
+        id: keyboard
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: Theme.pad
+        anchors.rightMargin: Theme.pad
+        anchors.bottomMargin: Theme.gap
+        height: Theme.touch * 4 + Theme.gap * 3
+
+        onKeyText: function(s) { field.insert(field.cursorPosition, s) }
+        onBackspace: {
+            if (field.cursorPosition > 0)
+                field.remove(field.cursorPosition - 1, field.cursorPosition)
+        }
+        onEnter: root.send()
     }
 
     function send() {

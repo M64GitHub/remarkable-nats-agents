@@ -8,10 +8,12 @@ import AgentChat
 // injected as a context property in main.cpp.
 Window {
     id: win
-    // On the device the epaper platform drives geometry; on the desktop we open a
-    // portrait window roughly matching the Paper Pro aspect for a faithful preview.
-    width: 1080
-    height: 1440
+    // Fill the e-paper panel on-device (1620x2160); use a portrait window of the
+    // same aspect for the desktop preview.
+    readonly property bool onDevice: Qt.platform.pluginName === "epaper"
+    width: onDevice ? Screen.width : 1080
+    height: onDevice ? Screen.height : 1440
+    visibility: onDevice ? Window.FullScreen : Window.Windowed
     visible: true
     color: Theme.bg
     title: "Agent Chat"
