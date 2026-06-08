@@ -59,6 +59,43 @@ int runSmoke(QGuiApplication &app, const QString &promptText)
     return app.exec();
 }
 
+// Headless $SRV discovery + heartbeat probe. Enabled by AGENT_CHAT_DISCOVER=1.
+// Connects, watches heartbeats, runs discovery, prints the roster + any beats,
+// then exits. Lets us verify M2 against a live server with no display.
+int runDiscover(QGuiApplication &app)
+{
+    QTextStream out(stdout);
+    const QString host = qEnvironmentVariable("AGENT_CHAT_SMOKE_HOST", "127.0.0.1");
+    const quint16 port = static_cast<quint16>(qEnvironmentVariable("AGENT_CHAT_SMOKE_PORT", "4222").toUInt());
+
+    auto *nats = new NatsClient(&app);
+    auto *proto = new AgentProtocol(nats, &app);
+
+    QObject::connect(nats, &INatsConnection::connected, &app, [&]() {
+        out << "[discover] connected; watching heartbeats + discovering\n"; out.flush();
+        proto->startHeartbeatWatch();
+        proto->discover(1500);
+    });
+    QObject::connect(proto, &AgentProtocol::agentsDiscovered, &app,
+                     [&](const QVector<AgentProtocol::DiscoveredAgent> &agents) {
+        out << "[discover] found " << agents.size() << " agent(s):\n";
+        for (const auto &a : agents) {
+            out << "  - " << a.name << "  [" << a.agent << "/" << a.owner << "]"
+                << "  subject=" << a.subject << "  id=" << a.instanceId
+                << "  proto=" << a.protocolVersion
+                << "  attachments_ok=" << (a.attachmentsOk ? "true" : "false") << "\n";
+        }
+        out.flush();
+    });
+    QObject::connect(proto, &AgentProtocol::heartbeat, &app, [&](const QString &id, int s) {
+        out << "[discover] heartbeat id=" << id << " interval_s=" << s << "\n"; out.flush();
+    });
+
+    QTimer::singleShot(4000, &app, []() { QCoreApplication::exit(0); });
+    nats->connectToServer(host, port);
+    return app.exec();
+}
+
 }  // namespace
 
 // We own the object graph here (transport -> protocol -> controller) and hand the
@@ -74,6 +111,8 @@ int main(int argc, char *argv[])
     const QString smoke = qEnvironmentVariable("AGENT_CHAT_SMOKE");
     if (!smoke.isEmpty())
         return runSmoke(app, smoke);
+    if (!qEnvironmentVariable("AGENT_CHAT_DISCOVER").isEmpty())
+        return runDiscover(app);
 
     NatsClient nats;
     AgentProtocol protocol(&nats);

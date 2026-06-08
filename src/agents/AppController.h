@@ -1,12 +1,15 @@
 #pragma once
 
 #include "agents/AgentModel.h"
+#include "agents/AgentProtocol.h"
 #include "agents/ChatModel.h"
 
+#include <QHash>
 #include <QObject>
 #include <QString>
+#include <QVector>
 
-class AgentProtocol;
+class QTimer;
 
 // The single QML-facing facade (exposed as the context property `App`). Owns the
 // roster and chat models, drives connection state, and translates UI intents
@@ -39,6 +42,7 @@ public:
 public slots:
     void connectToServer();                    // dial the configured server URL
     void setServerUrl(const QString &url);     // change + persist the server address
+    void refresh();                            // re-run $SRV discovery
     void selectAgent(int row);                 // choose an agent; resets the chat
     void sendPrompt(const QString &text);      // send to the selected agent
 
@@ -51,6 +55,11 @@ signals:
 private:
     void setConnectionState(const QString &state);
     bool loadRosterFromJson(const QByteArray &json);
+    void showStaticRoster();
+    void onAgentsDiscovered(const QVector<AgentProtocol::DiscoveredAgent> &agents);
+    void onHeartbeat(const QString &instanceId, int intervalS);
+    void recomputeLiveness();
+    bool isInstanceLive(const QString &instanceId) const;
 
     AgentProtocol *m_protocol = nullptr;
     AgentModel m_agents;
@@ -62,4 +71,15 @@ private:
     int m_selectedRow = -1;
     QString m_selectedTitle;
     QString m_selectedSubject;
+
+    // Roster sources: static (config/built-in) shown until/unless discovery finds
+    // agents; discovered ones replace it while connected.
+    QVector<AgentModel::Entry> m_staticEntries;
+    bool m_haveDiscovered = false;
+
+    // Liveness, keyed by $SRV instance id.
+    QHash<QString, qint64> m_lastSeenMs;   // last heartbeat, epoch ms
+    QHash<QString, int> m_intervalS;       // advertised cadence
+    QTimer *m_sweepTimer = nullptr;        // periodic stale check
+    QTimer *m_rediscoverTimer = nullptr;   // debounced re-discover on unknown beats
 };

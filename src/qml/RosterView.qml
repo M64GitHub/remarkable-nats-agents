@@ -17,7 +17,7 @@ Item {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        height: Theme.touch + Theme.gap * 3 + Theme.fontS
+        height: Theme.touch * 2 + Theme.gap * 3
 
         Item {
             id: serverRow
@@ -76,22 +76,40 @@ Item {
             }
         }
 
-        Text {
-            id: stateText
+        Item {
+            id: stateRow
             anchors.top: serverRow.bottom
             anchors.topMargin: Theme.gap
             anchors.left: parent.left
             anchors.leftMargin: Theme.pad
             anchors.right: parent.right
             anchors.rightMargin: Theme.pad
-            elide: Text.ElideRight
-            font.family: Theme.uiFont
-            font.pixelSize: Theme.fontS
-            color: Theme.fg
-            text: {
-                if (App.connectionState === "connected") return "● connected · " + App.serverUrl
-                if (App.connectionState === "connecting") return "… connecting · " + App.serverUrl
-                return "○ offline · " + App.serverUrl
+            height: Theme.touch
+
+            FlatButton {
+                id: refreshBtn
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                visible: App.connectionState === "connected"
+                text: "Refresh"
+                onClicked: App.refresh()
+            }
+
+            Text {
+                id: stateText
+                anchors.left: parent.left
+                anchors.right: refreshBtn.visible ? refreshBtn.left : parent.right
+                anchors.rightMargin: refreshBtn.visible ? Theme.gap : 0
+                anchors.verticalCenter: parent.verticalCenter
+                elide: Text.ElideRight
+                font.family: Theme.uiFont
+                font.pixelSize: Theme.fontS
+                color: Theme.fg
+                text: {
+                    if (App.connectionState === "connected") return "● connected · " + App.serverUrl
+                    if (App.connectionState === "connecting") return "… connecting · " + App.serverUrl
+                    return "○ offline · " + App.serverUrl
+                }
             }
         }
 

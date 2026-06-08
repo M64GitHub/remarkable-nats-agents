@@ -2,16 +2,109 @@
 
 #include "nats/INatsConnection.h"
 
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QStringList>
 #include <QTimer>
 #include <QUuid>
 
 AgentProtocol::AgentProtocol(INatsConnection *conn, QObject *parent)
     : QObject(parent), m_conn(conn)
 {
+    qRegisterMetaType<QVector<AgentProtocol::DiscoveredAgent>>();
     connect(m_conn, &INatsConnection::messageReceived, this, &AgentProtocol::onMessage);
+
+    // Discovery window: when it fires, stop collecting and publish the batch.
+    m_discoveryTimer = new QTimer(this);
+    m_discoveryTimer->setSingleShot(true);
+    connect(m_discoveryTimer, &QTimer::timeout, this, [this]() {
+        if (m_discoverySid) {
+            m_conn->unsubscribe(m_discoverySid);
+            m_discoverySid = 0;
+        }
+        emit agentsDiscovered(m_discoveryBatch);
+    });
+}
+
+void AgentProtocol::startHeartbeatWatch()
+{
+    if (!m_conn->isConnected())
+        return;
+    // Fresh subscription each call; after a reconnect the old sid is already gone
+    // server-side, so overwriting it just drops a stale local number.
+    m_heartbeatSid = m_conn->subscribe(QStringLiteral("agents.hb.*.*.*"));
+}
+
+void AgentProtocol::discover(int windowMs)
+{
+    if (!m_conn->isConnected())
+        return;
+    if (m_discoverySid)
+        m_conn->unsubscribe(m_discoverySid);
+    m_discoveryBatch.clear();
+    const QString inbox = m_conn->newInbox();
+    m_discoverySid = m_conn->subscribe(inbox);
+    m_conn->publish(QStringLiteral("$SRV.INFO.agents"), QByteArray(), inbox);
+    m_discoveryTimer->start(windowMs);
+}
+
+void AgentProtocol::handleDiscoveryReply(const QByteArray &payload)
+{
+    const QJsonDocument doc = QJsonDocument::fromJson(payload);
+    if (!doc.isObject())
+        return;
+    const QJsonObject o = doc.object();
+    if (o.value(QStringLiteral("name")).toString() != QLatin1String("agents"))
+        return;   // some other micro service replied to $SRV — ignore
+
+    const QJsonObject md = o.value(QStringLiteral("metadata")).toObject();
+    DiscoveredAgent a;
+    a.instanceId = o.value(QStringLiteral("id")).toString();
+    a.agent = md.value(QStringLiteral("agent")).toString();
+    a.owner = md.value(QStringLiteral("owner")).toString();
+    a.session = md.value(QStringLiteral("session")).toString();
+    a.protocolVersion = md.value(QStringLiteral("protocol_version")).toString();
+    a.description = o.value(QStringLiteral("description")).toString();
+
+    for (const QJsonValue &ev : o.value(QStringLiteral("endpoints")).toArray()) {
+        const QJsonObject ep = ev.toObject();
+        if (ep.value(QStringLiteral("name")).toString() != QLatin1String("prompt"))
+            continue;
+        a.subject = ep.value(QStringLiteral("subject")).toString();
+        // Endpoint metadata values are strings on the wire (e.g. "true"), but
+        // tolerate a real bool too.
+        const QJsonValue ao = ep.value(QStringLiteral("metadata")).toObject()
+                                  .value(QStringLiteral("attachments_ok"));
+        a.attachmentsOk = ao.isBool()
+                              ? ao.toBool()
+                              : ao.toString().compare(QLatin1String("true"), Qt::CaseInsensitive) == 0;
+        break;
+    }
+    if (a.subject.isEmpty())
+        return;   // no prompt endpoint → not addressable
+
+    // Instance name lives only in the subject (§2): 5th token; else the session.
+    const QStringList t = a.subject.split(QLatin1Char('.'));
+    a.name = (t.size() >= 5) ? t.at(4) : a.session;
+
+    for (const DiscoveredAgent &existing : m_discoveryBatch)
+        if (existing.instanceId == a.instanceId)
+            return;   // already have this instance
+    m_discoveryBatch.append(a);
+}
+
+void AgentProtocol::handleHeartbeat(const QByteArray &payload)
+{
+    const QJsonDocument doc = QJsonDocument::fromJson(payload);
+    if (!doc.isObject())
+        return;
+    const QJsonObject o = doc.object();
+    const QString id = o.value(QStringLiteral("instance_id")).toString();
+    if (id.isEmpty())
+        return;
+    emit heartbeat(id, o.value(QStringLiteral("interval_s")).toInt(30));
 }
 
 QString AgentProtocol::sendPrompt(const QString &subject, const QString &text)
@@ -70,6 +163,16 @@ void AgentProtocol::finish(quint64 sid)
 void AgentProtocol::onMessage(quint64 sid, const QString &, const QString &,
                               const QByteArray &payload, const QVariantMap &headers)
 {
+    // Route by subscription: heartbeats, the discovery inbox, then prompt inboxes.
+    if (m_heartbeatSid != 0 && sid == m_heartbeatSid) {
+        handleHeartbeat(payload);
+        return;
+    }
+    if (m_discoverySid != 0 && sid == m_discoverySid) {
+        handleDiscoveryReply(payload);
+        return;
+    }
+
     auto it = m_bySid.find(sid);
     if (it == m_bySid.end())
         return;   // not one of our reply inboxes

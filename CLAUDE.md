@@ -93,7 +93,8 @@ older "Synadia Agents" service name was **v0.1** and is wrong for v0.3.
   timeout: 60s. Unknown chunk `type`s: ignore.
 - **Liveness:** heartbeats pub/sub on `agents.hb.*.*.*` (payload has `instance_id`,
   `interval_s`); subscribe before first discovery. `status` endpoint = on-demand
-  heartbeat-shaped request/reply. (M2.)
+  heartbeat-shaped request/reply. **Discovery + heartbeat liveness are implemented
+  (M2)**; the `status` request/reply bootstrap is not yet used.
 - **Testing fixtures** (real, spec-compliant — register on `$SRV` + heartbeat):
   `/home/m64/space/synadia-ai/synadia-agents/agent-sdk/python/examples/01-echo.py`
   (and the TS twin). Run with `--owner local --session-name test` → subject
@@ -108,14 +109,16 @@ older "Synadia Agents" service name was **v0.1** and is wrong for v0.3.
 - `src/nats/NatsClient.{h,cpp}` — NATS-over-QTcpSocket: handshake, PING/PONG,
   PUB/SUB/UNSUB, MSG + **HMSG** parsing, `_INBOX` factory.
 - `src/agents/AgentProtocol.{h,cpp}` — v0.3 layer: `sendPrompt` → streaming
-  ack/response/terminator/error signals; (M2: `$SRV` discovery + heartbeats).
+  ack/response/terminator/error signals; `discover()` ($SRV scatter-gather) +
+  `startHeartbeatWatch()` (agents.hb.*.*.*) → `agentsDiscovered`/`heartbeat`.
 - `src/agents/{AgentModel,ChatModel}.{h,cpp}` — roster + conversation list models.
 - `src/agents/AppController.{h,cpp}` — QML-facing facade (`App` context property);
   loads static roster (`$AGENT_CHAT_CONFIG` / `./agents.json` / bundled / built-in).
 - `src/qml/*` — hand-rolled flat UI; `Theme.qml` is a **singleton** (must be flagged
   `QT_QML_SINGLETON_TYPE` in CMake or `Theme.*` resolves to undefined at runtime).
-- `src/main.cpp` — wires it together; `AGENT_CHAT_SMOKE=<text>` runs a headless
-  prompt round-trip (no QML) for CI / no-display verification.
+- `src/main.cpp` — wires it together. Headless verification (no QML/display):
+  `AGENT_CHAT_SMOKE=<text>` runs a prompt round-trip; `AGENT_CHAT_DISCOVER=1`
+  runs $SRV discovery + a heartbeat probe and prints the roster.
 
 ## Scripts
 - `scripts/inspect-device.sh` — read-only capability probe of the connected device.

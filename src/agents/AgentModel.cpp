@@ -57,3 +57,12 @@ const AgentModel::Entry *AgentModel::at(int row) const
         return nullptr;
     return &m_entries[row];
 }
+
+void AgentModel::setOnline(int row, bool online)
+{
+    if (row < 0 || row >= m_entries.size() || m_entries[row].online == online)
+        return;
+    m_entries[row].online = online;
+    const QModelIndex idx = index(row);
+    emit dataChanged(idx, idx, {OnlineRole});
+}

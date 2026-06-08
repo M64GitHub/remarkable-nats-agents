@@ -2,6 +2,7 @@
 
 #include <QAbstractListModel>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 // Roster of agents shown in the left/first screen. In M1 this is populated from
@@ -18,6 +19,7 @@ public:
         QString name;         // instance name (5th subject token)
         QString description;  // human-readable
         QString subject;      // prompt endpoint subject to publish to
+        QStringList instanceIds;  // $SRV instance ids behind this subject (liveness)
         bool online = true;   // M1: assumed; M2: from heartbeats
     };
 
@@ -38,6 +40,9 @@ public:
     void setEntries(const QVector<Entry> &entries);
     const Entry *at(int row) const;
     int count() const { return m_entries.size(); }
+
+    // Toggle a row's liveness without resetting the model (emits dataChanged).
+    void setOnline(int row, bool online);
 
 private:
     QVector<Entry> m_entries;

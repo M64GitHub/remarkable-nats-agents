@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QString>
 #include <QVariantMap>
+#include <QVector>
 
 class INatsConnection;
 class QTimer;
@@ -24,20 +25,45 @@ class AgentProtocol : public QObject
 {
     Q_OBJECT
 public:
+    // One agent instance as reported by $SRV.INFO.agents (§4.3, §B.12).
+    struct DiscoveredAgent {
+        QString instanceId;       // service `id` == heartbeat instance_id
+        QString agent;            // metadata.agent
+        QString owner;            // metadata.owner
+        QString session;          // metadata.session (may be empty)
+        QString name;             // 5th token of the prompt subject (else session)
+        QString description;
+        QString subject;          // prompt endpoint subject — publish here
+        QString protocolVersion;  // metadata.protocol_version
+        bool attachmentsOk = false;
+    };
+
     explicit AgentProtocol(INatsConnection *conn, QObject *parent = nullptr);
 
     INatsConnection *connection() const { return m_conn; }
 
-    // Send `text` to a prompt endpoint `subject` (learned from discovery or, in
-    // M1, from static config). Returns an opaque request id that tags every
-    // signal emitted for this stream. Empty text is rejected (returns "").
+    // Send `text` to a prompt endpoint `subject` (learned from discovery, or from
+    // static config). Returns an opaque request id that tags every signal emitted
+    // for this stream. Empty text is rejected (returns "").
     QString sendPrompt(const QString &subject, const QString &text);
+
+    // Subscribe to the heartbeat wildcard (agents.hb.*.*.*). Call before discover()
+    // so we don't miss a just-discovered agent's first beat (§8.5). Idempotent-ish:
+    // safe to call again after a reconnect (re-subscribes).
+    void startHeartbeatWatch();
+
+    // Scatter-gather $SRV.INFO.agents (§4.1): collect every instance's reply for
+    // `windowMs`, then emit agentsDiscovered() once with the batch.
+    void discover(int windowMs = 2000);
 
 signals:
     void promptAck(const QString &requestId);                                  // {type:"status",data:"ack"}
     void promptResponse(const QString &requestId, const QString &textDelta);   // {type:"response",...}
     void promptComplete(const QString &requestId);                             // headerless terminator
     void promptError(const QString &requestId, int code, const QString &message);
+
+    void agentsDiscovered(const QVector<AgentProtocol::DiscoveredAgent> &agents);
+    void heartbeat(const QString &instanceId, int intervalS);                  // liveness beacon (§8)
 
 private slots:
     void onMessage(quint64 sid, const QString &subject, const QString &reply,
@@ -53,8 +79,17 @@ private:
     };
     void resetInactivity(Request &req);
     void finish(quint64 sid);   // unsubscribe + drop bookkeeping
+    void handleDiscoveryReply(const QByteArray &payload);
+    void handleHeartbeat(const QByteArray &payload);
 
     INatsConnection *m_conn = nullptr;
-    QHash<quint64, Request> m_bySid;   // sid -> in-flight request
+    QHash<quint64, Request> m_bySid;   // sid -> in-flight prompt request
     int m_inactivityMs = 60000;        // §6.6 recommended default
+
+    quint64 m_heartbeatSid = 0;        // subscription for agents.hb.*.*.*
+    quint64 m_discoverySid = 0;        // in-flight $SRV.INFO reply inbox (0 = none)
+    QTimer *m_discoveryTimer = nullptr;
+    QVector<DiscoveredAgent> m_discoveryBatch;
 };
+
+Q_DECLARE_METATYPE(AgentProtocol::DiscoveredAgent)
