@@ -96,10 +96,34 @@ foreground call with the sandbox disabled**, owned by one process that tears the
 children down before exit (see `scripts/smoke-test.py`). This does not affect a
 normal developer shell — only the agent harness.
 
-## E-paper specifics (to be filled in on first device deploy)
+## E-paper specifics (verified on the device)
 
-- Run sequence: `systemctl stop xochitl` → `QT_QUICK_BACKEND=epaper
-  ./hello_remarkable -platform epaper` → Ctrl-C → `systemctl start xochitl`.
-- The DRM panel reported a non-physical `405×1084` in inspection; size off
-  `Screen.width/height`, and confirm real geometry, font scale, and refresh
-  behaviour (full vs partial update, ghosting) on the actual panel.
+- **Geometry:** the real panel is **1620×2160** (the inspection probe's `405×1084`
+  was a virtualized stand-in). The window fills it on-device via `Screen.width/height`
+  + `Window.FullScreen`, gated on `Qt.platform.pluginName === "epaper"`; the desktop
+  preview stays a 1080×1440 portrait window. Still size off `Screen`/proportions —
+  never hardcode.
+- **Run sequence:** `systemctl stop xochitl` → `QT_QUICK_BACKEND=epaper
+  ./hello_remarkable -platform epaper` → quit → `systemctl start xochitl`. Use the
+  `trap "systemctl start xochitl" EXIT` one-liner in `deploy.sh` so the stock UI is
+  always restored.
+- **Quitting:** there is no reliable Ctrl-C — `ssh` without a PTY doesn't forward
+  SIGINT to the app. So: an in-app **Exit** button (`Qt.quit()`), plus a SIGINT/
+  SIGTERM/SIGHUP handler (flag + 200ms poll, the only async-signal-safe way to reach
+  `app.quit()`) so closing the session also exits cleanly.
+- **Refresh / typing latency.** The panel is colour (ACeP); full grayscale refresh
+  is slow. `libqsgepaper` drives `EPFrameBuffer::sendUpdate(rect, WaveformMode,
+  UpdateMode)` automatically and picks the waveform from content — but there is **no
+  public header in the SDK**, so don't reverse-engineer it. Instead bias the backend
+  toward its fast monochrome waveform from the app:
+  - `app.styleHints()->setCursorFlashTime(0)` — a blinking cursor repaints the field
+    ~2×/sec; kill it.
+  - `QFont::NoAntialias` on the app font — anti-aliased glyphs have gray edges that
+    force the slow grayscale waveform; 1-bit glyphs stay 2-colour → fast mono path.
+  - Keep content pure black/white in hot paths; greys (e.g. `Theme.mute` subtitles)
+    are fine off the typing path. Press-invert on keys only dirties that key.
+  - Input is decoupled from display: keystrokes are never dropped even when the
+    repaint lags.
+- **Deploy while running:** scp over the live binary fails with ETXTBSY; `deploy.sh`
+  copies to a temp name and `mv -f`s over it (rename swaps the dir entry; the running
+  process keeps its inode; next launch gets the new build).

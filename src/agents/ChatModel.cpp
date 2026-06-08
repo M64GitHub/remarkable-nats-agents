@@ -1,5 +1,14 @@
 #include "agents/ChatModel.h"
 
+#include <QDateTime>
+
+namespace {
+QString nowHHmm()
+{
+    return QDateTime::currentDateTime().toString(QStringLiteral("HH:mm"));
+}
+}  // namespace
+
 ChatModel::ChatModel(QObject *parent)
     : QAbstractListModel(parent)
 {
@@ -34,6 +43,8 @@ QVariant ChatModel::data(const QModelIndex &index, int role) const
         case Error:     return QStringLiteral("error");
         }
         return {};
+    case TimeRole:
+        return m.time;
     default:
         return {};
     }
@@ -45,6 +56,7 @@ QHash<int, QByteArray> ChatModel::roleNames() const
         {TextRole, "text"},
         {IsUserRole, "isUser"},
         {StatusRole, "status"},
+        {TimeRole, "time"},
     };
 }
 
@@ -107,13 +119,13 @@ void ChatModel::trim(const QString &key)
 
 void ChatModel::appendUser(const QString &text)
 {
-    appendTo(m_curKey, Message{User, text, Done, QString()});
+    appendTo(m_curKey, Message{User, text, Done, QString(), nowHHmm()});
 }
 
 void ChatModel::appendAgentPending(const QString &requestId)
 {
     m_reqConv.insert(requestId, m_curKey);
-    appendTo(m_curKey, Message{Agent, QString(), Pending, requestId});
+    appendTo(m_curKey, Message{Agent, QString(), Pending, requestId, nowHHmm()});
 }
 
 void ChatModel::appendDelta(const QString &requestId, const QString &delta)

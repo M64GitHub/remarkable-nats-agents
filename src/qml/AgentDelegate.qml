@@ -1,8 +1,9 @@
 import QtQuick
 import AgentChat
 
-// One roster row: instance name, identity line, description. Whole row is the
-// touch target; it inverts while pressed (discrete, no animation).
+// One agent as a card (laid out in a grid, 3 across). Status dot + name, the
+// agent/owner identity, and a short description. The whole card is the touch
+// target and inverts while pressed. Pure B/W, rounded border — e-paper friendly.
 Item {
     id: root
     property string title: ""
@@ -11,52 +12,76 @@ Item {
     property bool online: true
     signal clicked()
 
-    implicitHeight: col.implicitHeight + Theme.pad * 2
-
     Rectangle {
+        id: card
         anchors.fill: parent
+        anchors.margins: Theme.gap / 2
+        radius: Theme.gap
         color: mouse.pressed ? Theme.fill : Theme.bg
-    }
+        border.color: Theme.hairline
+        border.width: Theme.border
 
-    Column {
-        id: col
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
-        anchors.leftMargin: Theme.pad
-        anchors.rightMargin: Theme.pad
-        spacing: Theme.gap / 2
+        readonly property color ink: mouse.pressed ? Theme.bg : Theme.fg
+        readonly property color sub: mouse.pressed ? Theme.bg : Theme.mute
 
-        Text {
-            text: (root.online ? "● " : "○ ") + root.title
-            font.family: Theme.uiFont
-            font.pixelSize: Theme.fontL
-            font.bold: true
-            color: mouse.pressed ? Theme.bg : Theme.fg
-        }
-        Text {
-            text: root.subtitle
-            font.family: Theme.monoFont
-            font.pixelSize: Theme.fontS
-            color: mouse.pressed ? Theme.bg : Theme.mute
-        }
-        Text {
-            width: col.width
-            visible: root.description.length > 0
-            text: root.description
-            wrapMode: Text.WordWrap
-            font.family: Theme.uiFont
-            font.pixelSize: Theme.fontS
-            color: mouse.pressed ? Theme.bg : Theme.mute
-        }
-    }
+        Column {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: Theme.gap
+            spacing: Theme.gap / 2
 
-    Rectangle {   // row separator
-        anchors.bottom: parent.bottom
-        anchors.left: parent.left
-        anchors.right: parent.right
-        height: Theme.border
-        color: Theme.hairline
+            Item {
+                width: parent.width
+                height: nameText.implicitHeight
+
+                Rectangle {   // drawn status dot: filled = online, ring = offline
+                    id: dot
+                    width: Theme.fontS * 0.7
+                    height: width
+                    radius: width / 2
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    color: root.online ? card.ink : "transparent"
+                    border.color: card.ink
+                    border.width: Theme.border
+                }
+                Text {
+                    id: nameText
+                    anchors.left: dot.right
+                    anchors.leftMargin: Theme.gap / 2
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: root.title
+                    elide: Text.ElideRight
+                    font.family: Theme.uiFont
+                    font.pixelSize: Theme.fontL
+                    font.bold: true
+                    color: card.ink
+                }
+            }
+
+            Text {
+                width: parent.width
+                text: root.subtitle
+                elide: Text.ElideRight
+                font.family: Theme.monoFont
+                font.pixelSize: Theme.fontS
+                color: card.sub
+            }
+
+            Text {
+                width: parent.width
+                visible: root.description.length > 0
+                text: root.description
+                wrapMode: Text.Wrap
+                maximumLineCount: 3
+                elide: Text.ElideRight
+                font.family: Theme.uiFont
+                font.pixelSize: Theme.fontS
+                color: card.sub
+            }
+        }
     }
 
     MouseArea {

@@ -2,8 +2,11 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 
+#include <QFont>
+#include <QStyleHints>
 #include <QTextStream>
 #include <QTimer>
+#include <csignal>
 #include <cstdio>
 
 #include "nats/NatsClient.h"
@@ -11,6 +14,13 @@
 #include "agents/AppController.h"
 
 namespace {
+
+// Async-signal-safe quit: the handler only flips a flag; a polling timer (set up
+// in main) does the actual app.quit() on the Qt thread. Lets SIGINT/SIGTERM/SIGHUP
+// (e.g. closing the ssh session) shut the app down cleanly so the launcher's
+// `trap ... EXIT` restores xochitl. The in-app Exit button is the primary path.
+volatile std::sig_atomic_t g_quitRequested = 0;
+void requestQuit(int) { g_quitRequested = 1; }
 
 // Headless end-to-end smoke test of the transport + protocol stack, with no QML.
 // Enabled by setting AGENT_CHAT_SMOKE=<prompt text>. Connects, sends one prompt
@@ -148,6 +158,15 @@ int main(int argc, char *argv[])
     app.setOrganizationName("synadia");
     app.setApplicationName("agent-chat");
 
+    // E-paper refresh tuning (helps typing latency):
+    //  - a steady (non-blinking) text cursor avoids a repaint twice a second;
+    //  - non-anti-aliased text keeps glyph regions 2-colour so the panel can use
+    //    its fast monochrome waveform instead of the slow grayscale one.
+    app.styleHints()->setCursorFlashTime(0);
+    QFont appFont = app.font();
+    appFont.setStyleStrategy(QFont::NoAntialias);
+    app.setFont(appFont);
+
     const QString smoke = qEnvironmentVariable("AGENT_CHAT_SMOKE");
     if (!smoke.isEmpty())
         return runSmoke(app, smoke);
@@ -160,6 +179,18 @@ int main(int argc, char *argv[])
     AgentProtocol protocol(&nats);
     AppController controller(&protocol);
     controller.loadRoster();
+
+    // Quit cleanly on signals (see requestQuit). A 200ms poll only reads a flag,
+    // so it triggers no repaints on the e-paper panel.
+    std::signal(SIGINT, requestQuit);
+    std::signal(SIGTERM, requestQuit);
+    std::signal(SIGHUP, requestQuit);
+    auto *quitPoll = new QTimer(&app);
+    quitPoll->start(200);
+    QObject::connect(quitPoll, &QTimer::timeout, &app, [&app]() {
+        if (g_quitRequested)
+            app.quit();
+    });
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("App", &controller);

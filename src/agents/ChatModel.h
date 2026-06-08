@@ -24,6 +24,7 @@ public:
         TextRole = Qt::UserRole + 1,
         IsUserRole,
         StatusRole,   // "pending" | "streaming" | "done" | "error"
+        TimeRole,     // "HH:mm" the message was added
     };
 
     explicit ChatModel(QObject *parent = nullptr);
@@ -48,6 +49,7 @@ private:
         QString text;
         Status status = Done;
         QString requestId;   // agent rows only
+        QString time;        // "HH:mm"
     };
 
     int rowForRequest(const QString &key, const QString &requestId) const;

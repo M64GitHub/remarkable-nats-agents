@@ -26,6 +26,7 @@ Item {
             text: model.text
             isUser: model.isUser
             status: model.status
+            time: model.time
         }
 
         onCountChanged: positionViewAtEnd()

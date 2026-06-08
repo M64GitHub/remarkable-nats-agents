@@ -58,6 +58,18 @@ Window {
             horizontalAlignment: Text.AlignHCenter
             text: win.view === "chat" && App.agentSelected ? App.selectedAgent : "Agents"
         }
+
+        // Clean exit — the device often has no working Ctrl-C (ssh without a PTY
+        // doesn't forward SIGINT), and quitting lets the launcher restore xochitl.
+        FlatButton {
+            id: exitButton
+            anchors.right: parent.right
+            anchors.rightMargin: Theme.pad
+            anchors.verticalCenter: parent.verticalCenter
+            visible: win.view === "roster"
+            text: "Exit"
+            onClicked: Qt.quit()
+        }
     }
 
     Rectangle {   // header underline

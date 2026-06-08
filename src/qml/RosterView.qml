@@ -138,19 +138,25 @@ Item {
         color: Theme.hairline
     }
 
-    // ── Roster list ────────────────────────────────────────────────────────────
-    ListView {
-        id: list
+    // ── Roster grid (3 across) ──────────────────────────────────────────────────
+    GridView {
+        id: grid
         anchors.top: statusLine.bottom
+        anchors.topMargin: Theme.gap / 2
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
+        anchors.leftMargin: Theme.pad - Theme.gap / 2
+        anchors.rightMargin: Theme.pad - Theme.gap / 2
         clip: true
         model: App.agents
         boundsBehavior: Flickable.StopAtBounds
+        cellWidth: Math.floor(width / 3)
+        cellHeight: Theme.touch * 2 + Theme.gap * 4
 
         delegate: AgentDelegate {
-            width: ListView.view.width
+            width: grid.cellWidth
+            height: grid.cellHeight
             title: model.title
             subtitle: model.subtitle
             description: model.description
@@ -160,8 +166,8 @@ Item {
     }
 
     Text {
-        anchors.centerIn: parent
-        visible: list.count === 0
+        anchors.centerIn: grid
+        visible: grid.count === 0
         text: "No agents in roster"
         font.family: Theme.uiFont
         font.pixelSize: Theme.fontM

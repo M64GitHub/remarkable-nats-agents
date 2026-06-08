@@ -87,17 +87,19 @@ ssh root@10.11.99.1
 systemctl stop xochitl                                   # blanks the stock UI
 QT_QUICK_BACKEND=epaper ./hello_remarkable -platform epaper
 #   ↑ the app now shows on the panel: tap an agent, send a prompt.
-#   Press Ctrl-C when done.
+#   Tap "Exit" (top-right of the roster) when done — Ctrl-C usually does NOT
+#   work over ssh (no PTY forwards the signal).
 systemctl start xochitl                                  # ALWAYS restore the stock UI
 ```
 
 > ⚠️ Always run `systemctl start xochitl` when you're finished, or the device will
 > sit on a blank screen until reboot. Safer one-liner that restores it no matter how
-> the app exits (crash or Ctrl-C):
+> the app exits (Exit button, closed session, or crash):
 > ```sh
 > ssh root@10.11.99.1 'systemctl stop xochitl; trap "systemctl start xochitl" EXIT; \
 >   QT_QUICK_BACKEND=epaper ./hello_remarkable -platform epaper'
 > ```
+> Tapping **Exit** quits the app cleanly, which fires the trap and restores xochitl.
 
 **Changing the server later:** re-run Step 1 with a new `RM_SERVER`, or edit
 `~/agents.json` on the device. (Once the on-screen keyboard milestone lands, you'll
