@@ -15,10 +15,15 @@ set -euo pipefail
 #
 # RM_SERVER / RM_CREDS are written to ~/agents.json on the device (the creds file
 # is copied too, chmod 600). The roster then fills in via $SRV discovery.
+#
+# To enable the in-app NATS context picker on the device (it has no NATS CLI), push
+# selected contexts from ~/.config/nats/context/ — creds paths are rewritten + copied:
+#   RM_CONTEXTS=ngs-premium scripts/deploy.sh
 
 DEVICE="${RM_DEVICE:-root@10.11.99.1}"
 RM_SERVER="${RM_SERVER:-}"
 RM_CREDS="${RM_CREDS:-}"
+RM_CONTEXTS="${RM_CONTEXTS:-}"
 cd "$(dirname "$0")/.."
 BIN="build-device/rm-agents"
 
@@ -49,6 +54,35 @@ if [[ -n "$RM_SERVER" || -n "$remote_creds" ]]; then
   json="{ $(IFS=, ; echo "${fields[*]}") }"
   printf '%s\n' "$json" | ssh "$DEVICE" 'cat > agents.json'
   echo "Wrote ${DEVICE}:~/agents.json -> $json"
+fi
+
+# In-app NATS context picker: the device has no NATS CLI, so push selected contexts
+# from ~/.config/nats/context/. Each context's creds path is rewritten to the device
+# location and the creds file copied (chmod 600). Once present, the picker appears
+# in the roster (between the server field and Connect) and cycles them.
+#   RM_CONTEXTS=ngs-premium,work scripts/deploy.sh
+if [[ -n "$RM_CONTEXTS" ]]; then
+  ssh "$DEVICE" 'mkdir -p .config/nats/context'
+  IFS=',' read -ra _ctx_names <<< "$RM_CONTEXTS"
+  for name in "${_ctx_names[@]}"; do
+    name="${name//[[:space:]]/}"
+    src="$HOME/.config/nats/context/${name}.json"
+    [[ -f "$src" ]] || { echo "  context '$name' not found ($src) — skipped" >&2; continue; }
+    url="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("url",""))' "$src")"
+    creds_src="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("creds",""))' "$src")"
+    dev_creds=""
+    if [[ -n "$creds_src" && -f "$creds_src" ]]; then
+      cbase="$(basename "$creds_src")"
+      scp "$creds_src" "$DEVICE:$cbase"; ssh "$DEVICE" "chmod 600 '$cbase'"
+      dev_creds="/home/root/$cbase"
+    fi
+    if [[ -n "$dev_creds" ]]; then
+      printf '{ "url": "%s", "creds": "%s" }\n' "$url" "$dev_creds"
+    else
+      printf '{ "url": "%s" }\n' "$url"
+    fi | ssh "$DEVICE" "cat > .config/nats/context/${name}.json"
+    echo "Pushed context '$name' (url=$url${dev_creds:+ + creds})"
+  done
 fi
 
 cat <<EOF

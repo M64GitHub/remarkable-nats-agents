@@ -176,6 +176,11 @@ RM_SERVER=nats://192.168.1.50:4222 scripts/deploy.sh        # use YOUR server's 
 # …or Synadia Cloud (the .creds file is copied too, chmod 600):
 RM_SERVER=tls://connect.ngs.global RM_CREDS=~/.config/nats/ngs-premium.creds scripts/deploy.sh
 ```
+To get the in-app **NATS context picker** on the device (it has no NATS CLI), push
+selected contexts — their creds paths are rewritten + copied automatically:
+```sh
+RM_CONTEXTS=ngs-premium,work scripts/deploy.sh   # then the picker appears in the roster
+```
 
 ### Run on the panel
 The app draws straight to the e-paper, so stop the stock UI (`xochitl`) first, then
