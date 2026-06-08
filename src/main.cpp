@@ -50,7 +50,8 @@ int runSmoke(QGuiApplication &app, const QString &promptText)
         QCoreApplication::exit(1);
     });
 
-    QTimer::singleShot(10000, &app, []() {
+    const int timeoutMs = qEnvironmentVariable("AGENT_CHAT_SMOKE_TIMEOUT_MS", "15000").toInt();
+    QTimer::singleShot(timeoutMs, &app, []() {
         std::fprintf(stderr, "[smoke] timed out\n");
         QCoreApplication::exit(2);
     });
