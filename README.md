@@ -24,6 +24,9 @@ native dependencies that don't cross-compile to the device.
 
 ---
 
+<img width="1974" height="4089" alt="walkthrough" src="https://github.com/user-attachments/assets/a64334d9-d9eb-48ef-a78b-ec4a5760f775" />
+
+
 ## Features
 
 - **A from-scratch NATS client in Qt/C++** — no NATS library. The wire protocol is
