@@ -60,7 +60,11 @@ public slots:
     void refresh();                            // re-run $SRV discovery
     void selectAgent(int row);                 // choose an agent; resets the chat
     void sendPrompt(const QString &text);      // send to the selected agent (+ staged attachment)
-    void stageNotePages(int noteRow, int fromPage, int toPage);  // 1-based, inclusive
+    // Render a page range (1-based, inclusive) of a note and stage it as an
+    // attachment. format: "pdf" = one compact multi-page vector PDF; "png" (default)
+    // = one full-res PNG per page.
+    void stageNotePages(int noteRow, int fromPage, int toPage,
+                        const QString &format = QStringLiteral("png"));
     void clearAttachment();
 
 signals:
@@ -101,9 +105,16 @@ private:
     bool m_selectedAttachmentsOk = false;
     int m_selectedMaxPayload = 0;
 
-    // Staged attachment (one note, a page range) shown in the chat input.
+    // Staged attachment (one note, a page range) shown in the chat input. Each
+    // staged file is a rendered PNG/PDF (or a thumbnail fallback) plus the filename
+    // to advertise to the agent (extension drives how the agent treats it).
+    struct StagedFile {
+        QString path;
+        QString filename;
+    };
     QString m_attachmentLabel;
-    QStringList m_stagedThumbs;          // absolute thumbnail paths to send
+    QVector<StagedFile> m_staged;
+    QString m_attachDir;                 // temp dir holding the rendered attachments
 
     // Roster sources: static (config/built-in) shown until/unless discovery finds
     // agents; discovered ones replace it while connected.

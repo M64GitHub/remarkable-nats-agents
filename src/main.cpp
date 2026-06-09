@@ -11,6 +11,7 @@
 #include <cstdio>
 
 #include <QFile>
+#include <QFileInfo>
 
 #include "nats/NatsClient.h"
 #include "agents/AgentProtocol.h"
@@ -67,7 +68,12 @@ int runSmoke(QGuiApplication &app, const QString &promptText)
                 path = QDir::homePath() + path.mid(1);
             QFile f(path);
             if (f.open(QIODevice::ReadOnly)) {
-                atts.append({QStringLiteral("page-%1.png").arg(idx++), f.readAll()});
+                // Keep the real extension (png/pdf) so the agent treats it correctly.
+                QString fn = QFileInfo(path).fileName();
+                if (fn.isEmpty())
+                    fn = QStringLiteral("page-%1").arg(idx);
+                ++idx;
+                atts.append({fn, f.readAll()});
             } else {
                 out << "[smoke] cannot read attachment: " << path << "\n";
             }
@@ -202,9 +208,12 @@ int runNotesTest()
         out << "  - \"" << n->name << "\"  folder='" << n->folder
             << "'  pages=" << n->pages.size() << "\n";
         for (const NoteStore::Page &p : n->pages) {
-            const bool exists = QFile::exists(p.thumbnail);
-            ok = ok && exists;
-            out << "      " << (exists ? "[ok] " : "[MISSING] ") << p.thumbnail << "\n";
+            // v2: a page is usable if it has a renderable .rm or a thumbnail fallback.
+            const bool hasRm = !p.rm.isEmpty() && QFile::exists(p.rm);
+            const bool hasThumb = !p.thumbnail.isEmpty() && QFile::exists(p.thumbnail);
+            ok = ok && (hasRm || hasThumb);
+            out << "      " << (hasRm ? "[rm] " : (hasThumb ? "[thumb] " : "[MISSING] "))
+                << (hasRm ? p.rm : p.thumbnail) << "\n";
         }
     }
     out << (ok ? "RESULT: PASS\n" : "RESULT: FAIL\n");

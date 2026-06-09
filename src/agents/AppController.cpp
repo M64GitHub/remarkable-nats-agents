@@ -2,6 +2,8 @@
 
 #include "agents/AgentProtocol.h"
 #include "nats/INatsConnection.h"
+#include "rm/RmParser.h"
+#include "rm/RmRenderer.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -12,8 +14,12 @@
 #include <QJsonObject>
 #include <QProcessEnvironment>
 #include <QSettings>
+#include <QStandardPaths>
 #include <QTimer>
 #include <QUrl>
+
+#include <algorithm>
+#include <vector>
 
 namespace {
 // Accept "host", "host:port", "nats://host:port", or "tls://host:port" and
@@ -392,27 +398,126 @@ void AppController::selectAgent(int row)
     emit selectedAgentChanged();
 }
 
-void AppController::stageNotePages(int noteRow, int fromPage, int toPage)
+namespace {
+constexpr int kPngMaxDim = 1404;          // cap a rendered PNG's longest side (px)
+constexpr double kRenderMargin = 40.0;    // must match RmRenderer's default margin
+
+bool loadRmPage(const QString &path, rm::Page &out)
+{
+    if (path.isEmpty())
+        return false;
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+        return false;
+    return rm::RmParser::parse(f.readAll(), out);
+}
+
+// Scale capping the rendered PNG's longest side at kPngMaxDim (never upscales) —
+// keeps full-res output well above the 512x384 thumbnail while bounding payload.
+double pngFitScale(const rm::Page &pg)
+{
+    const double spanX = double(pg.maxX - pg.minX) + 2 * kRenderMargin;
+    const double spanY = double(pg.maxY - pg.minY) + 2 * kRenderMargin;
+    const double longest = std::max(spanX, spanY);
+    if (longest <= 0.0)
+        return 1.0;
+    return std::min(1.0, double(kPngMaxDim) / longest);
+}
+
+QString sanitizeName(const QString &name)
+{
+    QString s;
+    for (const QChar c : name)
+        s += (c.isLetterOrNumber() || c == QLatin1Char('-')) ? c : QLatin1Char('_');
+    return s.isEmpty() ? QStringLiteral("note") : s.left(48);
+}
+
+// A clean temp dir for this staging round (wipes any previous render).
+QString freshAttachDir()
+{
+    QString base = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    if (base.isEmpty())
+        base = QDir::tempPath();
+    const QString d = base + QStringLiteral("/rm-agents-attach");
+    QDir(d).removeRecursively();
+    QDir().mkpath(d);
+    return d;
+}
+}  // namespace
+
+void AppController::stageNotePages(int noteRow, int fromPage, int toPage, const QString &format)
 {
     const NoteStore::Note *n = m_noteStore.at(noteRow);
     if (!n || n->pages.isEmpty())
         return;
-    int from = qBound(1, qMin(fromPage, toPage), n->pages.size());
-    int to = qBound(1, qMax(fromPage, toPage), n->pages.size());
-    m_stagedThumbs.clear();
-    for (int i = from - 1; i <= to - 1; ++i)
-        m_stagedThumbs << n->pages[i].thumbnail;
+    const int from = qBound(1, qMin(fromPage, toPage), n->pages.size());
+    const int to = qBound(1, qMax(fromPage, toPage), n->pages.size());
+
+    // Reset any previous staging (also wipes its temp dir).
+    if (!m_attachDir.isEmpty())
+        QDir(m_attachDir).removeRecursively();
+    m_staged.clear();
+    m_attachDir = freshAttachDir();
+
+    const bool wantPdf = format.compare(QLatin1String("pdf"), Qt::CaseInsensitive) == 0;
+    const rm::RenderOptions opt;   // uniform-width defaults
+
+    if (wantPdf) {
+        // One compact multi-page vector PDF for the whole range.
+        std::vector<rm::Page> pages;
+        for (int i = from - 1; i <= to - 1; ++i) {
+            rm::Page pg;
+            if (loadRmPage(n->pages[i].rm, pg))
+                pages.push_back(std::move(pg));
+        }
+        const QString name = sanitizeName(n->name);
+        const QString pdfPath = m_attachDir + QLatin1Char('/') + name + QStringLiteral(".pdf");
+        int emitted = 0;
+        if (rm::RmRenderer::renderToPdf(pages, pdfPath, opt, &emitted) && emitted > 0)
+            m_staged.append({pdfPath, name + QStringLiteral(".pdf")});
+    } else {
+        // One full-res PNG per page; fall back to the device thumbnail if a page
+        // has no renderable .rm.
+        int idx = 1;
+        for (int i = from - 1; i <= to - 1; ++i, ++idx) {
+            const QString fname = QStringLiteral("page-%1.png").arg(idx);
+            const QString pngPath = m_attachDir + QLatin1Char('/') + fname;
+            rm::Page pg;
+            bool ok = false;
+            if (loadRmPage(n->pages[i].rm, pg) && pg.hasContent) {
+                rm::RenderOptions o = opt;
+                o.scale = pngFitScale(pg);
+                ok = rm::RmRenderer::renderToPng(pg, pngPath, o);
+            }
+            if (ok)
+                m_staged.append({pngPath, fname});
+            else if (!n->pages[i].thumbnail.isEmpty())
+                m_staged.append({n->pages[i].thumbnail, fname});
+        }
+    }
+
+    if (m_staged.isEmpty()) {
+        m_attachmentLabel.clear();
+        emit notice(QStringLiteral("could not render the selected pages"));
+        emit attachmentChanged();
+        return;
+    }
+
+    const QString fmt = wantPdf ? QStringLiteral("PDF") : QStringLiteral("PNG");
     m_attachmentLabel = (from == to)
-        ? QStringLiteral("%1 · p%2").arg(n->name).arg(from)
-        : QStringLiteral("%1 · p%2–%3").arg(n->name).arg(from).arg(to);
+        ? QStringLiteral("%1 · p%2 · %3").arg(n->name).arg(from).arg(fmt)
+        : QStringLiteral("%1 · p%2–%3 · %4").arg(n->name).arg(from).arg(to).arg(fmt);
     emit attachmentChanged();
 }
 
 void AppController::clearAttachment()
 {
-    if (m_stagedThumbs.isEmpty() && m_attachmentLabel.isEmpty())
+    if (m_staged.isEmpty() && m_attachmentLabel.isEmpty())
         return;
-    m_stagedThumbs.clear();
+    if (!m_attachDir.isEmpty())
+        QDir(m_attachDir).removeRecursively();
+    m_attachDir.clear();
+    m_staged.clear();
     m_attachmentLabel.clear();
     emit attachmentChanged();
 }
@@ -433,27 +538,26 @@ void AppController::sendPrompt(const QString &text)
 
     // Build + locally validate attachments (§5.4) before publishing.
     QList<AgentProtocol::Attachment> atts;
-    if (!m_stagedThumbs.isEmpty()) {
+    if (!m_staged.isEmpty()) {
         if (!m_selectedAttachmentsOk) {
             emit notice(QStringLiteral("this agent doesn't accept attachments"));
             return;
         }
         qint64 encoded = trimmed.toUtf8().size() + 32;   // prompt + envelope overhead
-        int idx = 1;
-        for (const QString &path : m_stagedThumbs) {
-            QFile f(path);
+        for (const StagedFile &sf : m_staged) {
+            QFile f(sf.path);
             if (!f.open(QIODevice::ReadOnly)) {
-                emit notice(QStringLiteral("can't read a page image — try Refresh"));
+                emit notice(QStringLiteral("can't read a rendered page — try Refresh"));
                 return;
             }
             AgentProtocol::Attachment a;
-            a.filename = QStringLiteral("page-%1.png").arg(idx++);
+            a.filename = sf.filename;
             a.content = f.readAll();
             atts.append(a);
             encoded += (qint64(a.content.size()) + 2) / 3 * 4 + a.filename.size() + 40;
         }
         if (m_selectedMaxPayload > 0 && encoded > m_selectedMaxPayload) {
-            emit notice(QStringLiteral("attachment too large (~%1 KB > %2 KB) — pick fewer pages")
+            emit notice(QStringLiteral("attachment too large (~%1 KB > %2 KB) — pick fewer pages or use PDF")
                             .arg((encoded + 1023) / 1024)
                             .arg(m_selectedMaxPayload / 1024));
             return;

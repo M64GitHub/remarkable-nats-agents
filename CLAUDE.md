@@ -41,10 +41,16 @@ Not done yet: mid-stream queries (§7), `audit.agents.*` tail.
 - **V2 M2 (PDF + multi-page)** — `RmRenderer::renderToPdf(vector<Page>)`: **vector** strokes
   via `QPdfWriter`, one PDF page per input page, strokeless pages skipped; shares the
   stroke route with PNG. Compact (~112 KB/page vs ~448 KB PNG) → multi-page fits under
-  `max_payload`. Cross-compiles + **runs on device**. Not yet wired into the attach flow.
+  `max_payload`. Cross-compiles + **runs on device**.
+- **V2 attach-flow wiring** — `NoteStore` now lists any page with a `.rm` (not just ones
+  with a lazy thumbnail) and exposes its path; `AppController::stageNotePages(row,from,to,
+  format)` renders the range to a temp dir — **PNG per page** (dimension-capped) or **one
+  multi-page PDF** — chosen by a **PNG/PDF toggle** in the note browser. End-to-end
+  **verified against the live NGS `pi` vision agent**: it transcribed our rendered PNG and
+  read both pages of a 2-page PDF. (Interactive on-device GUI pass still to do by hand.)
 
-**Next up: wire `.rm`→PNG/PDF into `NoteStore`/the attach flow** (render any page, incl.
-thumbnail-less ones), then typed-text (RootText→Markdown). Spec: `docs/RM-PARSER-RENDERER.md`.
+**Next up: typed-text (RootText 0x07 → Markdown)** for typed pages (cheapest agent input),
+then polish (pressure→opacity, layers, eraser). Spec: `docs/RM-PARSER-RENDERER.md`.
 
 ## Machines & topology
 - **Build + dev host:** the Linux laptop (x86_64, Ubuntu 24.04). The reMarkable
@@ -158,8 +164,10 @@ older "Synadia Agents" service name was **v0.1** and is wrong for v0.3.
   ack/response/terminator/error signals; `discover()` ($SRV scatter-gather) +
   `startHeartbeatWatch()` (agents.hb.*.*.*) → `agentsDiscovered`/`heartbeat`.
 - `src/agents/{AgentModel,ChatModel}.{h,cpp}` — roster + conversation list models.
-- `src/notes/NoteStore.{h,cpp}` — lists notebooks (renderable pages) from the xochitl
-  store for the attachment browser. Root: `$AGENT_CHAT_XOCHITL` or the device default.
+- `src/notes/NoteStore.{h,cpp}` — lists notebooks from the xochitl store for the
+  attachment browser; per page exposes the **`.rm` path** (+ thumbnail fallback) and
+  includes any page with a `.rm` (v2 renders it; no longer thumbnail-gated). Root:
+  `$AGENT_CHAT_XOCHITL` or the device default.
 - `src/rm/*` (v2) — in-app `.rm` v6 renderer. `RmTaggedReader` (byte cursor: varuint,
   tagged values, subblocks), `RmTypes.h` (Block/Pen/PenColor enums + Point/Stroke/Layer/
   Page), `RmParser` (header + block loop → strokes; bounds each block body in its own

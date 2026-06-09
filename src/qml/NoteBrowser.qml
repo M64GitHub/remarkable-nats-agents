@@ -10,6 +10,7 @@ Item {
 
     property int selRow: -1
     property int pageCount: 1
+    property string fmt: "png"   // attachment format: "png" (full-res images) or "pdf"
 
     function selectNote(row, pages) {
         selRow = row
@@ -146,6 +147,34 @@ Item {
                 minValue: fromBox.value
                 maxValue: root.pageCount
             }
+
+            // Format toggle: full-res PNG per page, or one compact vector PDF.
+            Row {
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 0
+                Repeater {
+                    model: ["PNG", "PDF"]
+                    delegate: Rectangle {
+                        width: Theme.touch * 1.1
+                        height: Theme.touch * 0.78
+                        readonly property bool sel: root.fmt === modelData.toLowerCase()
+                        color: sel ? Theme.fg : Theme.bg
+                        border.color: Theme.hairline
+                        border.width: Theme.border
+                        Text {
+                            anchors.centerIn: parent
+                            text: modelData
+                            font.family: Theme.uiFont
+                            font.pixelSize: Theme.fontS
+                            color: parent.sel ? Theme.bg : Theme.fg
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: root.fmt = modelData.toLowerCase()
+                        }
+                    }
+                }
+            }
         }
 
         FlatButton {
@@ -154,7 +183,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             text: "Attach"
             onClicked: {
-                App.stageNotePages(root.selRow, fromBox.value, toBox.value)
+                App.stageNotePages(root.selRow, fromBox.value, toBox.value, root.fmt)
                 root.attached()
             }
         }

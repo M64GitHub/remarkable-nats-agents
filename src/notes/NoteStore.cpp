@@ -102,6 +102,7 @@ void NoteStore::scan()
         n.folder = folderPath(parent);
         n.lastModified = d.meta.value(QStringLiteral("lastModified")).toString().toLongLong();
 
+        const QString pageDir = dir.filePath(d.uuid);
         const QString thumbDir = dir.filePath(d.uuid + QStringLiteral(".thumbnails"));
         const QJsonArray pages =
             content.value(QStringLiteral("cPages")).toObject()
@@ -110,13 +111,16 @@ void NoteStore::scan()
             const QString pid = pv.toObject().value(QStringLiteral("id")).toString();
             if (pid.isEmpty())
                 continue;
-            // Thumbnails are rendered lazily — pages never opened recently may have
-            // no PNG (some notes have no .thumbnails dir at all). v1 can only attach
-            // rendered pages, so skip the rest; notes with none drop out below.
+            // v2: the in-app renderer reads the raw `<pageId>.rm`, so any page with one
+            // is attachable — including those the device never rendered a thumbnail for
+            // (thumbnails are lazy). Keep the thumbnail as a fallback when there's no .rm.
+            const QString rm = pageDir + QLatin1Char('/') + pid + QStringLiteral(".rm");
             const QString thumb = thumbDir + QLatin1Char('/') + pid + QStringLiteral(".png");
-            if (!QFile::exists(thumb))
+            const bool hasRm = QFile::exists(rm);
+            const bool hasThumb = QFile::exists(thumb);
+            if (!hasRm && !hasThumb)
                 continue;
-            n.pages.append({pid, thumb});
+            n.pages.append({pid, hasRm ? rm : QString(), hasThumb ? thumb : QString()});
         }
         if (!n.pages.isEmpty())
             m_notes.append(n);

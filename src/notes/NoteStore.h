@@ -11,14 +11,16 @@
 //
 // Notebooks only: `metadata.type == DocumentType` and `content.fileType == notebook`,
 // not deleted/trashed. The visible folder path is reconstructed from CollectionType
-// parents.
+// parents. A page is listed if it has a `.rm` (the in-app renderer can render it) OR a
+// device thumbnail — so v2 attaches any page, not just ones with a rendered thumbnail.
 class NoteStore : public QAbstractListModel
 {
     Q_OBJECT
 public:
     struct Page {
         QString id;
-        QString thumbnail;   // absolute path to the page PNG
+        QString rm;          // absolute path to <pageId>.rm (empty if none on disk)
+        QString thumbnail;   // absolute path to the device thumbnail PNG (may be empty)
     };
     struct Note {
         QString uuid;
