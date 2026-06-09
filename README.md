@@ -3,7 +3,8 @@
 > A multi-agent **AI chat client that runs natively on the reMarkable Paper Pro**
 > e-paper tablet, talking to AI agents over **NATS** (the Synadia Agent Protocol).
 > Discover agents on the bus, chat with replies that **stream in token-by-token**,
-> type on a **built-in on-screen keyboard**, and **attach your handwritten notes** —
+> type on a **built-in on-screen keyboard**, and **turn your handwritten notes into
+> full-resolution PNGs or PDFs with our own on-device `.rm` renderer** and attach them —
 > all on the panel. Or run the very same app as a desktop preview for fast iteration.
 
 Pure **Qt Quick / QML** (Qt 6.8), **e-paper-first** (monochrome, high-contrast, no
@@ -36,9 +37,13 @@ native dependencies that don't cross-compile to the device.
   chunk-by-chunk into the bubble. **Per-agent history** is preserved as you switch.
 - **Built-in on-screen keyboard** — the device ships no system keyboard, so this one
   is hand-rolled in QML (a hardware / Bluetooth keyboard works too).
-- **Attach handwritten notes** 📝 — browse your notebooks, choose a page range, and
-  attach the pages as images a **vision agent can read** (it really does read your
-  handwriting back to you).
+- **Your handwriting → image, rendered on the device** ✍️ — a **from-scratch C++ parser +
+  renderer for the reMarkable `.rm` v6 format** turns your strokes into a **full-resolution
+  PNG** or a compact **multi-page vector PDF**. Browse notebooks, pick a **page range**,
+  choose **PNG or PDF**, and attach it; a **vision agent reads your handwriting back to
+  you**. Renders *any* page (not just ones the device happened to thumbnail) and far
+  sharper than the device's 512×384 thumbnails. No Python/Java/Node — none exist on the
+  device — just QtGui. See **[the renderer](#the-handwriting-renderer-rm--png--pdf)** below.
 - **Local _or_ cloud** — a plaintext LAN `nats-server`, or **Synadia Cloud (NGS)**
   over TLS + NKEY/JWT. Switch endpoints with the in-app **NATS context picker**
   (reads your `~/.config/nats/context/*.json`).
@@ -54,7 +59,8 @@ native dependencies that don't cross-compile to the device.
         AppController
            ├── AgentModel   — roster + heartbeat liveness
            ├── ChatModel    — per-agent conversations (streaming)
-           └── NoteStore    — notebook browser for attachments
+           ├── NoteStore    — notebook browser for attachments (lists .rm pages)
+           └── rm/          — .rm v6 parser + renderer → PNG / multi-page PDF
                  │
         AgentProtocol   — Synadia Agent Protocol v0.3:
                           $SRV discovery · streaming prompts · heartbeats
@@ -69,6 +75,43 @@ The QML layer never touches NATS; everything above the wire depends only on
 `INatsConnection`. See **[IMPLEMENTATION-NOTES.md](docs/IMPLEMENTATION-NOTES.md)** for the
 design rationale and the hard-won gotchas.
 
+## The handwriting renderer (`.rm` → PNG / PDF)
+
+The device has **no Python, Java, or Node**, so every off-the-shelf `.rm` converter
+(`rmc`/`rmscene`, `drawj2d`, …) is unusable on it. So we wrote our own, in C++, against
+the **byte-validated reMarkable `.rm` v6 ("lines") format** — it runs in-process and
+cross-compiles with the rest of the app, no new runtime.
+
+```
+src/rm/
+  RmTaggedReader   — .rm byte cursor: varuint, fixed ints, f32/f64, tagged values, subblocks
+  RmParser         — 43-byte header + block loop → Page{ layers[ strokes[ points ] ] }
+                     decodes SceneLineItem strokes; skips unknown blocks by length
+  RmRenderer       — Page → QImage (PNG)  ·  vector multi-page PDF via QPdfWriter
+```
+
+- **Full resolution, both formats** — a sharp **PNG per page**, or one compact
+  **multi-page vector PDF** (a page range → a single ~100 KB-per-page attachment, vs a
+  ~450 KB PNG). Pick **PNG or PDF** right in the attach dialog.
+- **Any page is attachable** — it reads the raw `<pageId>.rm`, so pages the device never
+  rendered a thumbnail for work too (thumbnails are lazy; many pages never get one).
+- **Faithful** — colours (incl. the Paper Pro palette), uniform clean stroke weight,
+  upright for both portrait and landscape notes.
+- **Verified end-to-end** against a live **vision agent** on NGS: it transcribed a
+  rendered page and read back a multi-page PDF, both accurately.
+
+Render headlessly (no display) for testing or thumbnail diffing:
+```sh
+# one PNG (first page):
+AGENT_CHAT_TEST=render AGENT_CHAT_RENDER_IN=page.rm AGENT_CHAT_RENDER_OUT=/tmp/out.png \
+  QT_QPA_PLATFORM=offscreen ./build-desktop/rm-agents
+# one multi-page PDF from several pages, in order:
+AGENT_CHAT_TEST=render AGENT_CHAT_RENDER_IN=p1.rm,p2.rm AGENT_CHAT_RENDER_OUT=/tmp/out.pdf \
+  QT_QPA_PLATFORM=offscreen ./build-desktop/rm-agents
+```
+Format details and the calibration findings live in
+**[RM-PARSER-RENDERER.md](docs/RM-PARSER-RENDERER.md)**.
+
 ## Status
 
 | Milestone | What | State |
@@ -78,7 +121,8 @@ design rationale and the hard-won gotchas.
 | M3 | On-screen keyboard + full-panel layout | ✅ |
 | M5 | TLS + NKEY/JWT for NGS / Synadia Cloud + context picker | ✅ |
 | M6 | Attach notebook pages as images (v1: device thumbnails) | ✅ |
-| — | Full-resolution in-app `.rm` renderer ([plan](docs/RM-PARSER-RENDERER.md)) | planned |
+| v2 | In-app **`.rm` renderer** → full-res **PNG / multi-page PDF**, page ranges, wired into the attach flow ([details](docs/RM-PARSER-RENDERER.md)) | ✅ |
+| — | Typed-text pages (`RootText` → Markdown); render polish (pressure, layers, eraser) | planned |
 | M4 | Mid-stream queries (§7) + `audit.*` activity feed | planned |
 
 ## Hardware & topology
@@ -207,9 +251,10 @@ ssh root@10.11.99.1 'AGENT_CHAT_DISCOVER=1 AGENT_CHAT_SMOKE_HOST=<server-ip> \
 - **[CLAUDE.md](CLAUDE.md)** — project brief, current status, constraints, protocol.
 - **[IMPLEMENTATION-NOTES.md](docs/IMPLEMENTATION-NOTES.md)** — architecture rationale and
   the gotchas (Qt/QML, NATS wire, TLS/NGS, e-paper refresh, attachments).
-- Attachments groundwork: **[FILE-STORE.md](docs/FILE-STORE.md)** (how the device stores
-  documents), **[READING-NOTES.md](docs/READING-NOTES.md)** (thumbnails as LLM input),
-  **[RM-PARSER-RENDERER.md](docs/RM-PARSER-RENDERER.md)** (the planned full-res renderer).
+- Attachments + renderer: **[RM-PARSER-RENDERER.md](docs/RM-PARSER-RENDERER.md)** (the
+  `.rm` v6 format + the renderer's design and calibration),
+  **[FILE-STORE.md](docs/FILE-STORE.md)** (how the device stores documents),
+  **[READING-NOTES.md](docs/READING-NOTES.md)** (thumbnails as LLM input — the v1 shortcut).
 - Protocol: the **Synadia Agent Protocol** (v0.3) the client implements.
 
 ## Notes & constraints
