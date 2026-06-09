@@ -18,10 +18,17 @@ namespace rm {
 
 struct RenderOptions {
     double scale = 1.0;       // rm units -> output pixels (1.0 == full canvas res)
-    double penScale = 1.0;    // multiplier on decoded per-point stroke width
+    double penScale = 1.0;    // multiplier on the rendered stroke width
     double margin = 40.0;     // padding around the content bbox, in rm units
     double minPenPx = 1.0;    // floor on rendered pen width, in output pixels
     int rotation = 0;         // post-raster rotation in degrees (0/90/180/270)
+
+    // When > 0, every stroke is drawn at this single width (rm units) regardless
+    // of pen/colour/pressure — uniform, clean lines (the e-paper-first default,
+    // and what avoids coloured pens looking heavier than the black handwriting).
+    // Set <= 0 to fall back to the faithful per-point width (thickness_scale *
+    // decoded point width), the basis for a later pressure->opacity pass.
+    double uniformWidth = 6.0;
 };
 
 class RmRenderer {

@@ -2,6 +2,7 @@
 
 #include <QColor>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPointF>
 #include <QTransform>
 
@@ -82,7 +83,12 @@ QImage RmRenderer::renderToImage(const Page &page, const RenderOptions &opt)
             pen.setCapStyle(Qt::RoundCap);
             pen.setJoinStyle(Qt::RoundJoin);
 
+            const bool uniform = opt.uniformWidth > 0.0;
+            const double uniformPx =
+                std::max(opt.minPenPx, opt.uniformWidth * scale * opt.penScale);
             auto widthPx = [&](const Point &pt) {
+                if (uniform)
+                    return uniformPx;
                 const double base = double(pt.width) * s.thicknessScale * scale * opt.penScale;
                 return std::max(opt.minPenPx, base);
             };
@@ -93,7 +99,17 @@ QImage RmRenderer::renderToImage(const Page &page, const RenderOptions &opt)
                 p.drawPoint(map(s.points[0]));
                 continue;
             }
-            // Per-segment width tracks pen pressure/speed for natural handwriting.
+            // Uniform width: one pen for the whole polyline. Per-point width
+            // (uniformWidth <= 0) instead tracks pressure/speed per segment.
+            if (uniform) {
+                pen.setWidthF(uniformPx);
+                p.setPen(pen);
+                QPainterPath path(map(s.points[0]));
+                for (size_t i = 1; i < s.points.size(); ++i)
+                    path.lineTo(map(s.points[i]));
+                p.strokePath(path, pen);
+                continue;
+            }
             for (size_t i = 1; i < s.points.size(); ++i) {
                 pen.setWidthF(widthPx(s.points[i]));
                 p.setPen(pen);

@@ -271,6 +271,7 @@ int runRenderTest()
     opt.rotation = qEnvironmentVariable("AGENT_CHAT_RENDER_ROT", "0").toInt();
     opt.scale = qEnvironmentVariable("AGENT_CHAT_RENDER_SCALE", "1.0").toDouble();
     opt.penScale = qEnvironmentVariable("AGENT_CHAT_RENDER_PEN", "1.0").toDouble();
+    opt.uniformWidth = qEnvironmentVariable("AGENT_CHAT_RENDER_UNIFORM", "6.0").toDouble();
     const QString outPng = qEnvironmentVariable("AGENT_CHAT_RENDER_OUT",
                                                 "/tmp/rm-render.png");
     bool saved = false;
