@@ -3,9 +3,10 @@
 > A multi-agent **AI chat client that runs natively on the reMarkable Paper Pro**
 > e-paper tablet, talking to AI agents over **NATS** (the Synadia Agent Protocol).
 > Discover agents on the bus, chat with replies that **stream in token-by-token**,
-> type on a **built-in on-screen keyboard**, and **turn your handwritten notes into
-> full-resolution PNGs or PDFs with our own on-device `.rm` renderer** and attach them —
-> all on the panel. Or run the very same app as a desktop preview for fast iteration.
+> type on a **built-in on-screen keyboard**, and **turn your notes — handwritten, typed,
+> or both — into full-resolution PNGs or PDFs with our own on-device `.rm` renderer** and
+> attach them, all on the panel. Or run the very same app as a desktop preview for fast
+> iteration.
 
 Pure **Qt Quick / QML** (Qt 6.8), **e-paper-first** (monochrome, high-contrast, no
 animations, large touch targets), cross-compiled with the official reMarkable SDK.
@@ -37,13 +38,15 @@ native dependencies that don't cross-compile to the device.
   chunk-by-chunk into the bubble. **Per-agent history** is preserved as you switch.
 - **Built-in on-screen keyboard** — the device ships no system keyboard, so this one
   is hand-rolled in QML (a hardware / Bluetooth keyboard works too).
-- **Your handwriting → image, rendered on the device** ✍️ — a **from-scratch C++ parser +
+- **Your notes → image, rendered on the device** ✍️ — a **from-scratch C++ parser +
   renderer for the reMarkable `.rm` v6 format** turns your strokes into a **full-resolution
-  PNG** or a compact **multi-page vector PDF**. Browse notebooks, pick a **page range**,
-  choose **PNG or PDF**, and attach it; a **vision agent reads your handwriting back to
-  you**. Renders *any* page (not just ones the device happened to thumbnail) and far
-  sharper than the device's 512×384 thumbnails. No Python/Java/Node — none exist on the
-  device — just QtGui. See **[the renderer](#the-handwriting-renderer-rm--png--pdf)** below.
+  PNG** or a compact **multi-page vector PDF**. It renders **handwriting, typed text, and
+  mixed pages** (typed notes with handwritten annotations) — the typed text comes straight
+  from the file, so it's pixel-sharp, not OCR'd. Browse notebooks, pick a **page range**,
+  choose **PNG or PDF**, and attach it; a **vision agent reads your notes back to you**.
+  Renders *any* page (not just ones the device happened to thumbnail) and far sharper than
+  the device's 512×384 thumbnails. No Python/Java/Node — none exist on the device — just
+  QtGui. See **[the renderer](#the-handwriting-renderer-rm--png--pdf)** below.
 - **Local _or_ cloud** — a plaintext LAN `nats-server`, or **Synadia Cloud (NGS)**
   over TLS + NKEY/JWT. Switch endpoints with the in-app **NATS context picker**
   (reads your `~/.config/nats/context/*.json`).
@@ -85,20 +88,26 @@ cross-compiles with the rest of the app, no new runtime.
 ```
 src/rm/
   RmTaggedReader   — .rm byte cursor: varuint, fixed ints, f32/f64, tagged values, subblocks
-  RmParser         — 43-byte header + block loop → Page{ layers[ strokes[ points ] ] }
-                     decodes SceneLineItem strokes; skips unknown blocks by length
+  RmParser         — 43-byte header + block loop → Page{ layers[ strokes[ points ] ], text }
+                     decodes SceneLineItem strokes + RootText typed text; skips unknown blocks
   RmRenderer       — Page → QImage (PNG)  ·  vector multi-page PDF via QPdfWriter
 ```
 
 - **Full resolution, both formats** — a sharp **PNG per page**, or one compact
   **multi-page vector PDF** (a page range → a single ~100 KB-per-page attachment, vs a
   ~450 KB PNG). Pick **PNG or PDF** right in the attach dialog.
+- **Handwriting, typed text, and mixed pages** — strokes are rendered from the pen data;
+  **typed text** is parsed straight from the file's `RootText` block (so it's exact and
+  pixel-sharp, not OCR'd) and drawn into the same image. A **mixed page** (a typed note
+  with handwritten annotations) renders both — the typed block above, the handwriting
+  below — just like it looks on the tablet.
 - **Any page is attachable** — it reads the raw `<pageId>.rm`, so pages the device never
   rendered a thumbnail for work too (thumbnails are lazy; many pages never get one).
 - **Faithful** — colours (incl. the Paper Pro palette), uniform clean stroke weight,
   upright for both portrait and landscape notes.
 - **Verified end-to-end** against a live **vision agent** on NGS: it transcribed a
-  rendered page and read back a multi-page PDF, both accurately.
+  rendered handwriting page, read back a multi-page PDF, and — from one rendered mixed
+  page — returned the typed text *and* the handwriting as separate blocks.
 
 Render headlessly (no display) for testing or thumbnail diffing:
 ```sh
@@ -121,8 +130,8 @@ Format details and the calibration findings live in
 | M3 | On-screen keyboard + full-panel layout | ✅ |
 | M5 | TLS + NKEY/JWT for NGS / Synadia Cloud + context picker | ✅ |
 | M6 | Attach notebook pages as images (v1: device thumbnails) | ✅ |
-| v2 | In-app **`.rm` renderer** → full-res **PNG / multi-page PDF**, page ranges, wired into the attach flow ([details](docs/RM-PARSER-RENDERER.md)) | ✅ |
-| — | Typed-text pages (`RootText` → Markdown); render polish (pressure, layers, eraser) | planned |
+| v2 | In-app **`.rm` renderer** → full-res **PNG / multi-page PDF**: handwriting, **typed text & mixed pages**, page ranges, wired into the attach flow ([details](docs/RM-PARSER-RENDERER.md)) | ✅ |
+| — | Render polish: per-paragraph text styles (headings/bullets), pressure→opacity, layers, eraser | planned |
 | M4 | Mid-stream queries (§7) + `audit.*` activity feed | planned |
 
 ## Hardware & topology
