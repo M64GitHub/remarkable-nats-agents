@@ -246,10 +246,28 @@ than the `512×384` thumbnail. Key findings:
   thumbnail's margins) is deferred — auto-fit is the better vision input and is what the
   attach flow will use. Freeze Paper Pro page W/H here if/when page-framing is added.
 
-## Typed text — the easy lane
-`RootText` (`0x07`) / `SceneTextItem` (`0x06`) carry typed text (CRDT sequences). For
-typed pages, extract the string and attach **Markdown/plain text** — no image, no OCR,
-cheapest possible agent input. (Mirrors `rmc`'s "simple Markdown" output.)
+## Typed text — RootText (✅ done 2026-06-09)
+`RootText` (`0x07`) carries the page's typed text as a CRDT sequence. `RmParser` decodes
+it into `Page{ text, textX, textY, textWidth }` (concatenating the text-item strings in
+file order; `RmTaggedReader::readString` reads the `varuint len + flag + UTF-8` runs).
+`RmRenderer` draws the typed text into the image/PDF with a sans-serif font, word-wrapped
+to `textWidth`.
+
+**Mixed pages (typed + handwritten).** A page can have both a RootText block and strokes
+(verified: the "AI Workslop" typed page after adding handwriting below it). reMarkable's
+typed-text *vertical* coordinates don't map cleanly into stroke space — rendering both at
+their raw coordinates **overlaps** them, even though the device thumbnail shows them
+separated. So the renderer uses a **stacked layout**: the typed-text block on top, the
+strokes below it, sharing the horizontal (x) axis. This is robust and matches how mixed
+pages read; it deliberately ignores the absolute text Y (only font size / line advance /
+wrap width are calibrated — `textFontPx≈64`, `textLineHeight≈70` rm-units). Verified
+end-to-end: the NGS `pi` vision agent transcribed the typed text **and** the handwriting
+from one rendered image, as separate blocks. (Bullet/checkbox paragraphs come through as
+the `▎` glyph; per-paragraph styles/headings are a later refinement.)
+
+> Pure-typed pages could alternatively attach the extracted string as **Markdown/plain
+> text** (no image, no OCR — cheapest agent input). `Page.text` is already available for
+> that; wiring it into the attach flow is a possible follow-up.
 
 ## Milestones (incremental, each shippable)
 1. **v1 — thumbnails (no parser):** pick note → page range → attach existing

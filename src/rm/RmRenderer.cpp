@@ -1,6 +1,8 @@
 #include "rm/RmRenderer.h"
 
 #include <QColor>
+#include <QFont>
+#include <QFontMetricsF>
 #include <QMarginsF>
 #include <QPageSize>
 #include <QPainter>
@@ -9,16 +11,18 @@
 #include <QPointF>
 #include <QSize>
 #include <QSizeF>
+#include <QStringList>
 #include <QTransform>
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace rm {
 
 namespace {
 
-// reMarkable panel density — used to give the PDF a sensible physical page size
+// reMarkable panel density — gives the PDF a sensible physical page size
 // (rm coordinate units are ~screen pixels, so px / dpi = inches).
 constexpr double kPdfDpi = 226.0;
 
@@ -55,39 +59,118 @@ QColor colorForStroke(const Stroke &s)
     return colorForId(s.color);
 }
 
-// Content size in output pixels, BEFORE any rotation (bbox + margin) * scale.
-QSize contentSize(const Page &page, double scale, double margin)
+// Font for typed text — a sans-serif at the configured size (rm units; 1 unit == 1
+// px at scale 1). Used for both wrapping (metrics) and drawing.
+QFont typedFont(double px)
 {
-    const double spanX = double(page.maxX - page.minX) + 2 * margin;
-    const double spanY = double(page.maxY - page.minY) + 2 * margin;
-    return QSize(std::max(1, int(std::ceil(spanX * scale))),
-                 std::max(1, int(std::ceil(spanY * scale))));
+    QFont f(QStringLiteral("Noto Sans"));
+    f.setStyleHint(QFont::SansSerif);
+    f.setPixelSize(std::max(1, int(std::lround(px))));
+    return f;
 }
 
-// Rotate the painter so content of size `content` lands upright inside an output
-// surface of size `out` (out has w/h swapped for 90/270). No-op for rotation 0.
-void applyRotation(QPainter &p, int rotation, QSize content, QSize out)
+// Word-wrap the typed text to the box width (rm units). Paragraphs split on '\n';
+// an empty paragraph keeps a blank line so vertical spacing matches the original.
+std::vector<QString> wrapTypedText(const Page &page, const RenderOptions &opt)
 {
-    const int r = ((rotation % 360) + 360) % 360;
-    if (r == 0)
-        return;
-    p.translate(out.width() / 2.0, out.height() / 2.0);
-    p.rotate(r);
-    p.translate(-content.width() / 2.0, -content.height() / 2.0);
+    std::vector<QString> lines;
+    if (!page.hasText || !opt.drawText)
+        return lines;
+    const QFontMetricsF fm(typedFont(opt.textFontPx));
+    const double width = page.textWidth > 0 ? page.textWidth : 1e9;
+
+    const QStringList paragraphs = page.text.split(QLatin1Char('\n'));
+    for (const QString &para : paragraphs) {
+        if (para.isEmpty()) {
+            lines.push_back(QString());
+            continue;
+        }
+        QString cur;
+        const QStringList words = para.split(QLatin1Char(' '));
+        for (const QString &w : words) {
+            const QString candidate = cur.isEmpty() ? w : cur + QLatin1Char(' ') + w;
+            if (!cur.isEmpty() && fm.horizontalAdvance(candidate) > width) {
+                lines.push_back(cur);
+                cur = w;
+            } else {
+                cur = candidate;
+            }
+        }
+        lines.push_back(cur);
+    }
+    return lines;
 }
 
-// Draw a page's strokes into `p`, mapping rm coordinates to content pixels. The
-// caller owns the surface, white fill, render hints, and any rotation transform.
-void drawStrokes(QPainter &p, const Page &page, const RenderOptions &opt, double scale)
+double maxLineAdvance(const std::vector<QString> &lines, const RenderOptions &opt)
 {
-    const double m = opt.margin;
-    const double originX = double(page.minX) - m;
-    const double originY = double(page.minY) - m;
+    const QFontMetricsF fm(typedFont(opt.textFontPx));
+    double m = 0;
+    for (const QString &l : lines)
+        m = std::max(m, fm.horizontalAdvance(l));
+    return m;
+}
 
+// A laid-out page ready to paint. We render typed text and strokes in a STACKED
+// layout — the text block on top, the handwriting below it, sharing the horizontal
+// axis (x kept in page coordinates). reMarkable's typed-text vertical coordinates
+// don't map cleanly into stroke space, so stacking gives a clean, non-overlapping
+// result that matches how mixed pages actually read (typed note + annotations).
+struct PagePlan {
+    bool valid = false;
+    std::vector<QString> lines;   // wrapped typed-text lines
+    double originX = 0.0;         // rm x mapped to output x = 0
+    double strokeOriginY = 0.0;   // rm y mapped to output y = 0 for strokes
+    double textTopRm = 0.0;       // output-local rm y of the text block's top
+    double ascentRm = 0.0;        // font ascent in rm units
+    QSize content;                // unrotated output size in px
+};
+
+PagePlan planPage(const Page &page, const RenderOptions &opt, double scale)
+{
+    PagePlan plan;
+    plan.lines = wrapTypedText(page, opt);
+    const bool hasText = !plan.lines.empty();
+    const bool hasStroke = page.hasContent;
+    if (!hasText && !hasStroke)
+        return plan;
+
+    const double margin = opt.margin;
+    const QFontMetricsF fm(typedFont(opt.textFontPx));
+    plan.ascentRm = fm.ascent();
+
+    double xMin = std::numeric_limits<double>::max();
+    double xMax = std::numeric_limits<double>::lowest();
+    if (hasStroke) { xMin = std::min(xMin, double(page.minX)); xMax = std::max(xMax, double(page.maxX)); }
+    if (hasText) {
+        const double tw = page.textWidth > 0 ? page.textWidth : maxLineAdvance(plan.lines, opt);
+        xMin = std::min(xMin, page.textX);
+        xMax = std::max(xMax, page.textX + tw);
+    }
+
+    const double textH = hasText ? double(plan.lines.size()) * opt.textLineHeight : 0.0;
+    const double strokeH = hasStroke ? double(page.maxY - page.minY) : 0.0;
+    const double gap = (hasText && hasStroke) ? opt.textLineHeight : 0.0;
+
+    plan.originX = xMin - margin;
+    plan.textTopRm = margin;
+    const double strokeTopRm = margin + textH + gap;
+    plan.strokeOriginY = double(page.minY) - strokeTopRm;
+
+    const double contentW = (xMax - xMin) + 2 * margin;
+    const double contentH = margin + textH + gap + strokeH + margin;
+    plan.content = QSize(std::max(1, int(std::ceil(contentW * scale))),
+                         std::max(1, int(std::ceil(contentH * scale))));
+    plan.valid = true;
+    return plan;
+}
+
+// Draw a page's strokes, mapping rm coordinates to pixels with the given origin.
+void drawStrokes(QPainter &p, const Page &page, const RenderOptions &opt,
+                 double originX, double originY, double scale)
+{
     auto map = [&](const Point &pt) {
         return QPointF((double(pt.x) - originX) * scale, (double(pt.y) - originY) * scale);
     };
-
     const bool uniform = opt.uniformWidth > 0.0;
     const double uniformPx = std::max(opt.minPenPx, opt.uniformWidth * scale * opt.penScale);
 
@@ -114,8 +197,6 @@ void drawStrokes(QPainter &p, const Page &page, const RenderOptions &opt, double
                 p.drawPoint(map(s.points[0]));
                 continue;
             }
-            // Uniform width: one pen for the whole polyline. Per-point width
-            // (uniformWidth <= 0) instead tracks pressure/speed per segment.
             if (uniform) {
                 pen.setWidthF(uniformPx);
                 QPainterPath path(map(s.points[0]));
@@ -133,31 +214,60 @@ void drawStrokes(QPainter &p, const Page &page, const RenderOptions &opt, double
     }
 }
 
-// Output surface size after rotation (w/h swapped for 90/270).
+// Draw the wrapped typed text, line by line, in the stacked layout. All positions
+// are output-local rm units (× scale at draw time); see PagePlan.
+void drawTypedText(QPainter &p, const Page &page, const PagePlan &plan,
+                   const RenderOptions &opt, double scale)
+{
+    if (plan.lines.empty())
+        return;
+    p.setFont(typedFont(opt.textFontPx * scale));
+    p.setPen(QColor(0, 0, 0));
+
+    const double x = (page.textX - plan.originX) * scale;
+    for (size_t i = 0; i < plan.lines.size(); ++i) {
+        if (plan.lines[i].isEmpty())
+            continue;
+        const double baselineRm = plan.textTopRm + double(i) * opt.textLineHeight + plan.ascentRm;
+        p.drawText(QPointF(x, baselineRm * scale), plan.lines[i]);
+    }
+}
+
 QSize rotatedSize(QSize content, int rotation)
 {
     const int r = ((rotation % 360) + 360) % 360;
     return (r == 90 || r == 270) ? QSize(content.height(), content.width()) : content;
 }
 
+void applyRotation(QPainter &p, int rotation, QSize content, QSize out)
+{
+    const int r = ((rotation % 360) + 360) % 360;
+    if (r == 0)
+        return;
+    p.translate(out.width() / 2.0, out.height() / 2.0);
+    p.rotate(r);
+    p.translate(-content.width() / 2.0, -content.height() / 2.0);
+}
+
 }  // namespace
 
 QImage RmRenderer::renderToImage(const Page &page, const RenderOptions &opt)
 {
-    if (!page.hasContent)
+    const double scale = opt.scale > 0 ? opt.scale : 1.0;
+    const PagePlan plan = planPage(page, opt, scale);
+    if (!plan.valid)
         return QImage(8, 8, QImage::Format_RGB32);
 
-    const double scale = opt.scale > 0 ? opt.scale : 1.0;
-    const QSize content = contentSize(page, scale, opt.margin);
-    const QSize out = rotatedSize(content, opt.rotation);
-
+    const QSize out = rotatedSize(plan.content, opt.rotation);
     QImage img(out, QImage::Format_RGB32);
     img.fill(Qt::white);
 
     QPainter p(&img);
     p.setRenderHint(QPainter::Antialiasing, true);
-    applyRotation(p, opt.rotation, content, out);
-    drawStrokes(p, page, opt, scale);
+    p.setRenderHint(QPainter::TextAntialiasing, true);
+    applyRotation(p, opt.rotation, plan.content, out);
+    drawTypedText(p, page, plan, opt, scale);
+    drawStrokes(p, page, opt, plan.originX, plan.strokeOriginY, scale);
     p.end();
     return img;
 }
@@ -175,10 +285,10 @@ bool RmRenderer::renderToPdf(const std::vector<Page> &pages, const QString &path
 {
     const double scale = opt.scale > 0 ? opt.scale : 1.0;
 
-    // Collect the pages that actually have strokes; an all-blank input yields no PDF.
+    // Collect pages with any renderable content; an all-blank input yields no PDF.
     std::vector<const Page *> drawable;
     for (const Page &pg : pages)
-        if (pg.hasContent)
+        if (pg.hasContent || (pg.hasText && opt.drawText))
             drawable.push_back(&pg);
     if (pageCountOut)
         *pageCountOut = int(drawable.size());
@@ -193,13 +303,14 @@ bool RmRenderer::renderToPdf(const std::vector<Page> &pages, const QString &path
     QPainter p;
     for (size_t i = 0; i < drawable.size(); ++i) {
         const Page &pg = *drawable[i];
-        const QSize content = contentSize(pg, scale, opt.margin);
-        const QSize out = rotatedSize(content, opt.rotation);
-        // Physical page size so the PDF matches the note's real dimensions.
+        const PagePlan plan = planPage(pg, opt, scale);
+        if (!plan.valid)
+            continue;
+
+        const QSize out = rotatedSize(plan.content, opt.rotation);
         const QPageSize ps(QSizeF(out.width() / kPdfDpi, out.height() / kPdfDpi),
                            QPageSize::Inch, QString(), QPageSize::ExactMatch);
 
-        // Page size must be set before newPage() (and before begin() for page 1).
         writer.setPageSize(ps);
         if (i == 0) {
             if (!p.begin(&writer))
@@ -209,14 +320,14 @@ bool RmRenderer::renderToPdf(const std::vector<Page> &pages, const QString &path
         }
 
         p.setRenderHint(QPainter::Antialiasing, true);
-        // The painter device is in writer pixels; map our content (in px at
-        // `scale`) onto it, accounting for any rounding in the page size.
+        p.setRenderHint(QPainter::TextAntialiasing, true);
         const double sx = double(writer.width()) / std::max(1, out.width());
         const double sy = double(writer.height()) / std::max(1, out.height());
         p.save();
         p.scale(sx, sy);
-        applyRotation(p, opt.rotation, content, out);
-        drawStrokes(p, pg, opt, scale);
+        applyRotation(p, opt.rotation, plan.content, out);
+        drawTypedText(p, pg, plan, opt, scale);
+        drawStrokes(p, pg, opt, plan.originX, plan.strokeOriginY, scale);
         p.restore();
     }
     p.end();

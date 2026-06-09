@@ -31,6 +31,15 @@ struct RenderOptions {
     // Set <= 0 to fall back to the faithful per-point width (thickness_scale *
     // decoded point width), the basis for a later pressure->opacity pass.
     double uniformWidth = 6.0;
+
+    // Typed text (RootText) rendering, in rm coordinate units. Defaults calibrated
+    // against the device thumbnail of a mixed typed+handwritten page. The typed
+    // block is stacked above the strokes (reMarkable's typed-text vertical
+    // coordinates don't map cleanly into stroke space), so only the font size,
+    // line advance, and wrap width matter — not the absolute text Y.
+    double textFontPx = 64.0;       // glyph size
+    double textLineHeight = 70.0;   // per-line vertical advance
+    bool drawText = true;           // render typed text into the image/PDF
 };
 
 class RmRenderer {

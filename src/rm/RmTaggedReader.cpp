@@ -84,6 +84,15 @@ CrdtId RmTaggedReader::readCrdtId()
     return id;
 }
 
+QByteArray RmTaggedReader::readBytes(size_t n)
+{
+    if (!ensure(n))
+        return {};
+    QByteArray b(reinterpret_cast<const char *>(m_data + m_pos), int(n));
+    m_pos += n;
+    return b;
+}
+
 uint64_t RmTaggedReader::peekTag()
 {
     if (m_pos >= m_size)
@@ -147,6 +156,17 @@ uint32_t RmTaggedReader::readSubblockStart(uint32_t index, size_t &outEnd)
     const uint32_t len = readU32();
     outEnd = m_pos + len;
     return len;
+}
+
+QString RmTaggedReader::readString(uint32_t index)
+{
+    size_t end = 0;
+    readSubblockStart(index, end);
+    const uint64_t len = readVaruint();
+    readU8();   // is-ascii flag (unused)
+    const QByteArray bytes = readBytes(size_t(len));
+    seek(end);  // skip any trailing per-run format
+    return QString::fromUtf8(bytes);
 }
 
 }  // namespace rm

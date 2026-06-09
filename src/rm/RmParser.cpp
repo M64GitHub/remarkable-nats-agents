@@ -106,6 +106,61 @@ void parseSceneLineItem(RmTaggedReader &r, uint8_t curVersion,
     layer.strokes.push_back(std::move(s));
 }
 
+// Parse a RootText (0x07) block body: the document's typed text. Structure (rmscene):
+//   id(1) block_id; subblock(2){ subblock(1){ subblock(1){ varuint n; item* } }   // text
+//                                subblock(2){ ... } }                              // styles
+//   subblock(3){ f64 pos_x; f64 pos_y }; float(4) width
+// Each text item is subblock(0){ id(2) id(3) id(4) int(5); [string(6)] }. We
+// concatenate the item strings in file order (= typed order for unedited text).
+void parseRootText(RmTaggedReader &r, Page &out)
+{
+    r.readId(1);                       // block_id (CrdtId(0,0))
+    if (!r.checkTag(2, TagType::Length4))
+        return;
+    size_t end2 = 0;
+    r.readSubblockStart(2, end2);
+
+    QString text;
+    if (r.checkTag(1, TagType::Length4)) {
+        size_t endA = 0;
+        r.readSubblockStart(1, endA);
+        if (r.checkTag(1, TagType::Length4)) {
+            size_t endB = 0;
+            r.readSubblockStart(1, endB);
+            const uint64_t n = r.readVaruint();
+            for (uint64_t i = 0; i < n && r.ok(); ++i) {
+                if (!r.checkTag(0, TagType::Length4))
+                    break;
+                size_t endItem = 0;
+                r.readSubblockStart(0, endItem);
+                r.readId(2);           // item_id
+                r.readId(3);           // left_id
+                r.readId(4);           // right_id
+                r.readInt(5);          // deleted_length
+                if (r.checkTag(6, TagType::Length4))
+                    text += r.readString(6);
+                r.seek(endItem);
+            }
+            r.seek(endB);
+        }
+        r.seek(endA);
+    }
+    r.seek(end2);                      // skip the styles subblock(2)
+
+    if (r.checkTag(3, TagType::Length4)) {
+        size_t end3 = 0;
+        r.readSubblockStart(3, end3);
+        out.textX = r.readF64();
+        out.textY = r.readF64();
+        r.seek(end3);
+    }
+    if (r.checkTag(4, TagType::Byte4))
+        out.textWidth = r.readFloat(4);
+
+    out.text = text;
+    out.hasText = !text.isEmpty();
+}
+
 }  // namespace
 
 bool RmParser::parse(const QByteArray &data, Page &out, ParseStats *statsOut, QString *err)
@@ -159,8 +214,12 @@ bool RmParser::parse(const QByteArray &data, Page &out, ParseStats *statsOut, QS
             RmTaggedReader body(reinterpret_cast<const uint8_t *>(data.constData()) + bodyStart,
                                 bodyLen);
             parseSceneLineItem(body, curVersion, layer, st);
+        } else if (BlockType(blockType) == BlockType::RootText) {
+            RmTaggedReader body(reinterpret_cast<const uint8_t *>(data.constData()) + bodyStart,
+                                bodyLen);
+            parseRootText(body, out);
         }
-        // Other blocks (TreeNode, RootText, PageInfo, …) are skipped by length.
+        // Other blocks (TreeNode, PageInfo, …) are skipped by length.
 
         r.seek(bodyEnd);                     // resync to the declared boundary
         st.blocks++;

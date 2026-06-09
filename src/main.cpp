@@ -251,6 +251,9 @@ int runRenderTest()
     opt.scale = qEnvironmentVariable("AGENT_CHAT_RENDER_SCALE", "1.0").toDouble();
     opt.penScale = qEnvironmentVariable("AGENT_CHAT_RENDER_PEN", "1.0").toDouble();
     opt.uniformWidth = qEnvironmentVariable("AGENT_CHAT_RENDER_UNIFORM", "6.0").toDouble();
+    opt.textFontPx = qEnvironmentVariable("AGENT_CHAT_RENDER_TEXTPX", "64.0").toDouble();
+    opt.textLineHeight = qEnvironmentVariable("AGENT_CHAT_RENDER_TEXTLINEH", "70.0").toDouble();
+    opt.drawText = qEnvironmentVariable("AGENT_CHAT_RENDER_NOTEXT") != QLatin1String("1");
     const QString outPath = qEnvironmentVariable("AGENT_CHAT_RENDER_OUT",
                                                  "/tmp/rm-render.png");
     const bool wantPdf = outPath.endsWith(QStringLiteral(".pdf"), Qt::CaseInsensitive);
@@ -282,6 +285,10 @@ int runRenderTest()
             out << "  bbox: x[" << page.minX << ", " << page.maxX << "]  y["
                 << page.minY << ", " << page.maxY << "]  ("
                 << (page.maxX - page.minX) << " × " << (page.maxY - page.minY) << ")\n";
+        if (page.hasText)
+            out << "  typed text: " << page.text.size() << " chars @ ("
+                << page.textX << ", " << page.textY << ") width=" << page.textWidth
+                << "\n    \"" << page.text.left(200) << "\"\n";
         if (!ok)
             out << "  parse error: " << err << "\n";
         pages.push_back(std::move(page));
@@ -294,10 +301,10 @@ int runRenderTest()
         out << "rendered PDF: " << emitted << " page(s) -> " << outPath
             << (saved ? "  [ok]" : "  [NO OUTPUT]") << "\n";
     } else {
-        // PNG is single-page: render the first page that has strokes.
+        // PNG is single-page: render the first page with any content (strokes/text).
         const rm::Page *first = nullptr;
         for (const rm::Page &pg : pages)
-            if (pg.hasContent) { first = &pg; break; }
+            if (pg.hasContent || pg.hasText) { first = &pg; break; }
         if (first) {
             const QImage img = rm::RmRenderer::renderToImage(*first, opt);
             saved = img.save(outPath, "PNG");

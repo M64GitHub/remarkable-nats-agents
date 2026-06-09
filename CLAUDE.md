@@ -49,8 +49,16 @@ Not done yet: mid-stream queries (§7), `audit.agents.*` tail.
   **verified against the live NGS `pi` vision agent**: it transcribed our rendered PNG and
   read both pages of a 2-page PDF. (Interactive on-device GUI pass still to do by hand.)
 
-**Next up: typed-text (RootText 0x07 → Markdown)** for typed pages (cheapest agent input),
-then polish (pressure→opacity, layers, eraser). Spec: `docs/RM-PARSER-RENDERER.md`.
+- **V2 typed text (RootText 0x07)** — `RmParser` extracts the page's typed text + box
+  geometry (`Page.text/textX/textWidth`; `RmTaggedReader::readString`). `RmRenderer` draws
+  it into the image/PDF. **Mixed pages** (typed + handwritten) use a **stacked layout**
+  (typed block on top, strokes below, shared x) because reMarkable's typed-text vertical
+  coords don't map into stroke space. Verified end-to-end: the `pi` agent read both the
+  typed text and the handwriting from one render.
+
+**Next up (polish):** per-paragraph text styles (headings/bullets), pressure→opacity,
+layers, eraser, Paper Pro palette; optionally attach pure-typed pages as Markdown. Spec:
+`docs/RM-PARSER-RENDERER.md`.
 
 ## Machines & topology
 - **Build + dev host:** the Linux laptop (x86_64, Ubuntu 24.04). The reMarkable

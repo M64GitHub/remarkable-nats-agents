@@ -9,6 +9,7 @@
 // instead of reading out of bounds.
 
 #include <QByteArray>
+#include <QString>
 #include <cstdint>
 
 namespace rm {
@@ -53,6 +54,7 @@ public:
     double readF64();
     bool readBool();
     CrdtId readCrdtId();
+    QByteArray readBytes(size_t n);
 
     // --- tag handling ---
     // peekTag returns the next tag varuint WITHOUT consuming; UINT64_MAX at EOF.
@@ -69,6 +71,9 @@ public:
     // Subblock: consumes tag + uint32 length; returns the length and sets
     // outEnd to the absolute offset where the subblock ends.
     uint32_t readSubblockStart(uint32_t index, size_t &outEnd);
+    // String stored in a subblock: varuint length, 1 flag byte, then UTF-8 bytes.
+    // Seeks past the whole subblock (skips any trailing format), returns the text.
+    QString readString(uint32_t index);
 
     static constexpr uint64_t tagFor(uint32_t index, TagType type) {
         return (uint64_t(index) << 4) | uint64_t(type);

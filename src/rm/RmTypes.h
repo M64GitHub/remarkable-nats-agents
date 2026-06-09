@@ -62,9 +62,16 @@ struct Layer {
 // TreeNode-driven layering is a later-milestone refinement.
 struct Page {
     std::vector<Layer> layers;
-    QString text;             // typed text (RootText 0x07) — later milestone
 
-    // Bounding box over every point (valid when hasContent).
+    // Typed text (RootText 0x07): the concatenated string plus its layout anchor in
+    // the same centre-origin coordinate space as strokes. A page can have both typed
+    // text and strokes (a "mixed" page).
+    QString text;
+    bool hasText = false;
+    double textX = 0.0, textY = 0.0;   // top-left anchor of the text box
+    double textWidth = 0.0;            // wrap width
+
+    // Bounding box over every stroke point (valid when hasContent).
     float minX = 0.0f, minY = 0.0f, maxX = 0.0f, maxY = 0.0f;
     bool hasContent = false;
 
