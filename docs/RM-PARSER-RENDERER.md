@@ -260,6 +260,13 @@ cheapest possible agent input. (Mirrors `rmc`'s "simple Markdown" output.)
    thumbnail. Headless via `AGENT_CHAT_TEST=render` (see below). Not yet wired into the
    attach flow (that's the next step).
 3. **v3 — PDF + multi-page:** `QPdfWriter`, page-range → one PDF; pen widths/colors/layers.
+   ✅ **DONE (2026-06-09)** — `RmRenderer::renderToPdf(vector<Page>)`: **vector** strokes
+   (not embedded rasters), one PDF page per input page, strokeless pages skipped. Shares
+   the stroke-drawing route with the PNG path (uniform width by default). Compact: ~112 KB
+   per handwriting page vs ~448 KB for the PNG — comfortably multi-page under `max_payload`.
+   Cross-compiles **and runs on the device** (QPdfWriter confirmed in the sysroot + at
+   runtime). Headless: `AGENT_CHAT_TEST=render` with a `.pdf` `AGENT_CHAT_RENDER_OUT` and a
+   comma-separated `AGENT_CHAT_RENDER_IN`. Not yet wired into the attach flow.
 4. **v4 — typed text extraction:** RootText → Markdown for typed pages.
 5. polish: pressure→opacity, highlighter blend, eraser handling, Paper Pro palette.
 
@@ -268,7 +275,8 @@ cheapest possible agent input. (Mirrors `rmc`'s "simple Markdown" output.)
 - [x] ~~Confirm block framing & SceneLineItem structure~~ → **verified byte-for-byte** (incl.
       SceneItem envelope + optional value subblock — spec updated).
 - [ ] `QtSvg`/`QSvgGenerator` presence (sysroot + device) — only if we want SVG.
-- [ ] `QPdfWriter` link/run check on-device (Qt6::Gui now linked; PDF is M3 — confirm then).
+- [x] ~~`QPdfWriter` link/run check on-device~~ → confirmed: links in the sysroot and
+      generates a valid multi-page PDF on the device (vector strokes).
 - [ ] Full Paper Pro page extents + exact origin/scale — only needed if page-framing is
       added; auto-fit (M1) sidesteps it. coords are **center-origin**, `X∈[−890,942]
       Y∈[83,2500]` on the one note.

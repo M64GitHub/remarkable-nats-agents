@@ -33,13 +33,18 @@ Not done yet: mid-stream queries (§7), `audit.agents.*` tail.
   `RmTaggedReader` + `RmParser` (SceneLineItem strokes) + `RmRenderer`→PNG. Parses the
   fixture **byte-exact** (663 strokes / 10,268 points) and renders an **upright,
   full-res** PNG matching the device thumbnail (colours incl. cyan/magenta). Headless via
-  `AGENT_CHAT_TEST=render` (+ `AGENT_CHAT_RENDER_IN/_OUT/_ROT/_SCALE/_PEN`). Verified on
-  desktop; **not yet device-tested, not yet wired into the attach flow.** Fixed a real
-  spec bug along the way — the `TagType` nibbles in `docs/RM-PARSER-RENDERER.md` were
-  inverted; corrected from rmscene. See that doc for calibration findings.
+  `AGENT_CHAT_TEST=render`. Renderer defaults to **uniform stroke width** (colours were
+  drawn thicker than the black ink; `RenderOptions::uniformWidth`). Fixed a real spec bug
+  along the way — the `TagType` nibbles in `docs/RM-PARSER-RENDERER.md` were inverted;
+  corrected from rmscene. **Device-verified** (rendered a real page on the Paper Pro). See
+  that doc for calibration findings.
+- **V2 M2 (PDF + multi-page)** — `RmRenderer::renderToPdf(vector<Page>)`: **vector** strokes
+  via `QPdfWriter`, one PDF page per input page, strokeless pages skipped; shares the
+  stroke route with PNG. Compact (~112 KB/page vs ~448 KB PNG) → multi-page fits under
+  `max_payload`. Cross-compiles + **runs on device**. Not yet wired into the attach flow.
 
-**Next up: v2 M2+ — PDF/multi-page, then wire `.rm`→PNG into `NoteStore`/the attach flow**
-(render any page, incl. thumbnail-less ones). Plan + format spec: `docs/RM-PARSER-RENDERER.md`.
+**Next up: wire `.rm`→PNG/PDF into `NoteStore`/the attach flow** (render any page, incl.
+thumbnail-less ones), then typed-text (RootText→Markdown). Spec: `docs/RM-PARSER-RENDERER.md`.
 
 ## Machines & topology
 - **Build + dev host:** the Linux laptop (x86_64, Ubuntu 24.04). The reMarkable
@@ -169,9 +174,11 @@ older "Synadia Agents" service name was **v0.1** and is wrong for v0.3.
   AA). Headless verification (no QML/display): `AGENT_CHAT_SMOKE=<text>` = prompt
   round-trip; `AGENT_CHAT_DISCOVER=1` = $SRV discovery + heartbeat probe;
   `AGENT_CHAT_TEST=chat` = ChatModel self-test; `AGENT_CHAT_TEST=notes` = NoteStore
-  self-test (`$AGENT_CHAT_XOCHITL`); `AGENT_CHAT_TEST=render` = parse a `.rm` + save a
-  PNG (`AGENT_CHAT_RENDER_IN=<file.rm>`, `_OUT`, `_ROT`, `_SCALE`, `_PEN`) — prints
-  byte-exactness + stroke/point/bbox stats. Add `AGENT_CHAT_TLS=1 AGENT_CHAT_CREDS=<.creds>`
+  self-test (`$AGENT_CHAT_XOCHITL`); `AGENT_CHAT_TEST=render` = parse one or more `.rm`
+  (`AGENT_CHAT_RENDER_IN=<f.rm>[,<f2.rm>…]`) + save to `AGENT_CHAT_RENDER_OUT` (a `.pdf`
+  ext → one multi-page **vector PDF**; else first page → **PNG**); knobs
+  `_ROT/_SCALE/_PEN/_UNIFORM`; prints byte-exactness + stroke/point/bbox stats. Add
+  `AGENT_CHAT_TLS=1 AGENT_CHAT_CREDS=<.creds>`
   + `AGENT_CHAT_SMOKE_HOST=connect.ngs.global` to target NGS; `AGENT_CHAT_ATTACH=p1,p2`
   to attach files in the smoke prompt.
 

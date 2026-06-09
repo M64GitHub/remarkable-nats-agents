@@ -211,80 +211,95 @@ int runNotesTest()
     return ok ? 0 : 1;
 }
 
-// Headless self-test for the in-app .rm renderer (AGENT_CHAT_TEST=render): parse a
-// `.rm` file, print stats (blocks/strokes/points/bbox/tool+color histograms, and
-// the leftover-byte count that proves byte-exact framing), and save a full-res PNG
-// for thumbnail diffing. Knobs via env:
-//   AGENT_CHAT_RENDER_IN   path to the .rm file (required)
-//   AGENT_CHAT_RENDER_OUT  output PNG (default /tmp/rm-render.png)
-//   AGENT_CHAT_RENDER_ROT  post-raster rotation degrees (default 0; landscape = 90)
-//   AGENT_CHAT_RENDER_SCALE / _PEN  geometry calibration (default 1.0 / 1.0)
+// Headless self-test for the in-app .rm renderer (AGENT_CHAT_TEST=render): parse
+// one or more `.rm` files, print stats (blocks/strokes/points/bbox/tool+color
+// histograms, and the leftover-byte count that proves byte-exact framing), and
+// save a render. Knobs via env:
+//   AGENT_CHAT_RENDER_IN   comma-separated .rm paths (required; order = page order)
+//   AGENT_CHAT_RENDER_OUT  output file (default /tmp/rm-render.png). A `.pdf`
+//                          extension emits one multi-page PDF; otherwise the FIRST
+//                          page is saved as PNG.
+//   AGENT_CHAT_RENDER_ROT  rotation degrees (default 0; landscape stays upright)
+//   AGENT_CHAT_RENDER_SCALE / _PEN / _UNIFORM  geometry + width calibration
 int runRenderTest()
 {
     QTextStream out(stdout);
-    QString in = qEnvironmentVariable("AGENT_CHAT_RENDER_IN");
-    if (in.startsWith(QStringLiteral("~/")))
-        in = QDir::homePath() + in.mid(1);
-    if (in.isEmpty()) {
-        out << "set AGENT_CHAT_RENDER_IN=<file.rm>\nRESULT: FAIL\n";
+    const QString inEnv = qEnvironmentVariable("AGENT_CHAT_RENDER_IN");
+    if (inEnv.isEmpty()) {
+        out << "set AGENT_CHAT_RENDER_IN=<file.rm>[,<file2.rm>...]\nRESULT: FAIL\n";
         return 1;
     }
-    QFile f(in);
-    if (!f.open(QIODevice::ReadOnly)) {
-        out << "cannot open " << in << "\nRESULT: FAIL\n";
-        return 1;
+    QStringList inputs;
+    for (const QString &raw : inEnv.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+        QString in = raw.trimmed();
+        if (in.startsWith(QStringLiteral("~/")))
+            in = QDir::homePath() + in.mid(1);
+        inputs << in;
     }
-    const QByteArray data = f.readAll();
-
-    rm::Page page;
-    rm::ParseStats st;
-    QString err;
-    const bool ok = rm::RmParser::parse(data, page, &st, &err);
-
-    out << "file: " << in << "  (" << data.size() << " bytes)\n";
-    out << "header: " << (st.headerOk ? "ok" : "BAD")
-        << "  version=" << st.version << "\n";
-    out << "blocks: " << st.blocks
-        << "  sceneLineItems: " << st.sceneLineItems
-        << "  (value-less: " << st.valuelessItems << ")\n";
-    out << "strokes: " << st.strokes << "  points: " << st.points << "\n";
-    out << "leftover bytes: " << qulonglong(st.leftover)
-        << (st.leftover == 0 ? "  (byte-exact)" : "  (NOT byte-exact)") << "\n";
-    {
-        QStringList ts;
-        for (auto it = st.tools.constBegin(); it != st.tools.constEnd(); ++it)
-            ts << QStringLiteral("tool %1×%2").arg(it.key()).arg(it.value());
-        QStringList cs;
-        for (auto it = st.colors.constBegin(); it != st.colors.constEnd(); ++it)
-            cs << QStringLiteral("color %1×%2").arg(it.key()).arg(it.value());
-        out << "tools: " << ts.join(QStringLiteral(", ")) << "\n";
-        out << "colors: " << cs.join(QStringLiteral(", ")) << "\n";
-    }
-    if (page.hasContent)
-        out << "bbox: x[" << page.minX << ", " << page.maxX << "]  y["
-            << page.minY << ", " << page.maxY << "]  ("
-            << (page.maxX - page.minX) << " × " << (page.maxY - page.minY) << ")\n";
-    if (!ok)
-        out << "parse error: " << err << "\n";
 
     rm::RenderOptions opt;
     opt.rotation = qEnvironmentVariable("AGENT_CHAT_RENDER_ROT", "0").toInt();
     opt.scale = qEnvironmentVariable("AGENT_CHAT_RENDER_SCALE", "1.0").toDouble();
     opt.penScale = qEnvironmentVariable("AGENT_CHAT_RENDER_PEN", "1.0").toDouble();
     opt.uniformWidth = qEnvironmentVariable("AGENT_CHAT_RENDER_UNIFORM", "6.0").toDouble();
-    const QString outPng = qEnvironmentVariable("AGENT_CHAT_RENDER_OUT",
-                                                "/tmp/rm-render.png");
-    bool saved = false;
-    if (page.hasContent) {
-        const QImage img = rm::RmRenderer::renderToImage(page, opt);
-        saved = img.save(outPng, "PNG");
-        out << "rendered: " << img.width() << "×" << img.height()
-            << " px -> " << outPng << (saved ? "  [ok]" : "  [SAVE FAILED]") << "\n";
-    } else {
-        out << "no strokes to render\n";
+    const QString outPath = qEnvironmentVariable("AGENT_CHAT_RENDER_OUT",
+                                                 "/tmp/rm-render.png");
+    const bool wantPdf = outPath.endsWith(QStringLiteral(".pdf"), Qt::CaseInsensitive);
+
+    std::vector<rm::Page> pages;
+    bool allOk = true;
+    for (const QString &in : inputs) {
+        QFile f(in);
+        if (!f.open(QIODevice::ReadOnly)) {
+            out << "cannot open " << in << "\n";
+            allOk = false;
+            continue;
+        }
+        const QByteArray data = f.readAll();
+        rm::Page page;
+        rm::ParseStats st;
+        QString err;
+        const bool ok = rm::RmParser::parse(data, page, &st, &err);
+        allOk = allOk && ok && st.headerOk;
+
+        out << "file: " << in << "  (" << data.size() << " bytes)\n";
+        out << "  header: " << (st.headerOk ? "ok" : "BAD") << " v" << st.version
+            << "  blocks: " << st.blocks << "  sceneLineItems: " << st.sceneLineItems
+            << " (value-less: " << st.valuelessItems << ")\n";
+        out << "  strokes: " << st.strokes << "  points: " << st.points
+            << "  leftover: " << qulonglong(st.leftover)
+            << (st.leftover == 0 ? " (byte-exact)" : " (NOT byte-exact)") << "\n";
+        if (page.hasContent)
+            out << "  bbox: x[" << page.minX << ", " << page.maxX << "]  y["
+                << page.minY << ", " << page.maxY << "]  ("
+                << (page.maxX - page.minX) << " × " << (page.maxY - page.minY) << ")\n";
+        if (!ok)
+            out << "  parse error: " << err << "\n";
+        pages.push_back(std::move(page));
     }
 
-    const bool pass = ok && st.headerOk && (!page.hasContent || saved);
+    bool saved = false;
+    if (wantPdf) {
+        int emitted = 0;
+        saved = rm::RmRenderer::renderToPdf(pages, outPath, opt, &emitted);
+        out << "rendered PDF: " << emitted << " page(s) -> " << outPath
+            << (saved ? "  [ok]" : "  [NO OUTPUT]") << "\n";
+    } else {
+        // PNG is single-page: render the first page that has strokes.
+        const rm::Page *first = nullptr;
+        for (const rm::Page &pg : pages)
+            if (pg.hasContent) { first = &pg; break; }
+        if (first) {
+            const QImage img = rm::RmRenderer::renderToImage(*first, opt);
+            saved = img.save(outPath, "PNG");
+            out << "rendered PNG: " << img.width() << "×" << img.height()
+                << " px -> " << outPath << (saved ? "  [ok]" : "  [SAVE FAILED]") << "\n";
+        } else {
+            out << "no strokes to render\n";
+        }
+    }
+
+    const bool pass = allOk && saved;
     out << (pass ? "RESULT: PASS\n" : "RESULT: FAIL\n");
     return pass ? 0 : 1;
 }

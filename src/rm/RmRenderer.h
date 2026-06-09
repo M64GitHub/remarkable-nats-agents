@@ -14,6 +14,8 @@
 #include <QImage>
 #include <QString>
 
+#include <vector>
+
 namespace rm {
 
 struct RenderOptions {
@@ -39,6 +41,15 @@ public:
     // Render and save as PNG. Returns false on an empty page or a write failure.
     static bool renderToPng(const Page &page, const QString &path,
                             const RenderOptions &opt = {});
+
+    // Render a sequence of pages into one multi-page PDF (vector strokes via
+    // QPdfWriter — far more compact than embedding full-res rasters, which keeps
+    // a page range under the agent's max_payload). One PDF page per input page;
+    // pages with no strokes are skipped. Returns false if nothing was drawn or
+    // the file could not be written. `pageCountOut` (optional) receives the
+    // number of pages actually emitted.
+    static bool renderToPdf(const std::vector<Page> &pages, const QString &path,
+                            const RenderOptions &opt = {}, int *pageCountOut = nullptr);
 };
 
 }  // namespace rm
